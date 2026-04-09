@@ -86,15 +86,21 @@ class GCMemoryStore:
             self._rebuild_index()
 
     def run_decay(self, step: int) -> None:
-        """Time decay: affinity *= exp(-lambda * delta_steps / 100) for non-memory entries."""
+        """Time decay: affinity *= exp(-lambda * interval / 100) per period.
+
+        Applied once per decay interval. Entries retrieved within this
+        interval are exempt. Uses the fixed interval, not cumulative
+        time-since-retrieval, to avoid quadratic over-decay.
+        """
         lam = self.config.lambda_decay
+        interval = self.config.decay_interval
+        decay_factor = math.exp(-lam * interval / 100.0)
         for entry in self.entries.values():
             if entry.tier == Tier.MEMORY:
                 continue
-            delta_steps = step - entry.last_retrieved_step
-            if delta_steps <= 0:
+            if step - entry.last_retrieved_step < interval:
                 continue
-            entry.affinity *= math.exp(-lam * delta_steps / 100.0)
+            entry.affinity *= decay_factor
 
     def get_all_entries(self) -> list[MemoryEntry]:
         """Return all entries (including apoptotic)."""

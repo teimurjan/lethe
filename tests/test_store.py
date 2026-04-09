@@ -177,7 +177,8 @@ class TestDecay:
         entry.last_retrieved_step = 0
         store = GCMemoryStore([entry], config, rng)
         store.run_decay(step=200)
-        expected = 0.5 * math.exp(-config.lambda_decay * 200 / 100)
+        # Fixed decay factor per interval: exp(-lambda * interval / 100)
+        expected = 0.5 * math.exp(-config.lambda_decay * config.decay_interval / 100)
         assert store.entries["a"].affinity == pytest.approx(expected)
 
     def test_memory_exempt_from_decay(
