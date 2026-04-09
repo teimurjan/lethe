@@ -1,0 +1,9 @@
+results/
+data/
+__pycache__/
+*.egg-info/
+.venv/
+.mypy_cache/
+dist/
+*.pyc
+.DS_Store
