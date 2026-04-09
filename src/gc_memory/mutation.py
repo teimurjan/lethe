@@ -6,7 +6,7 @@ import numpy.typing as npt
 
 def compute_sigma(affinity: float, sigma_0: float, gamma: float) -> float:
     """sigma_i = sigma_0 * (1 - affinity_i) ** gamma"""
-    return sigma_0 * (1.0 - affinity) ** gamma
+    return float(sigma_0 * (1.0 - affinity) ** gamma)
 
 
 def generate_mutants(
@@ -29,7 +29,7 @@ def generate_mutants(
     mutants = embedding + noise
     norms = np.linalg.norm(mutants, axis=1, keepdims=True)
     mutants = mutants / norms
-    return mutants
+    return np.asarray(mutants, dtype=np.float32)
 
 
 def select_best_mutant(
@@ -57,4 +57,4 @@ def select_best_mutant(
     if anchor_sim < theta_anchor:
         return None
 
-    return mutants[best_idx].copy()
+    return np.array(mutants[best_idx], dtype=np.float32)

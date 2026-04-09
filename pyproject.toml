@@ -24,10 +24,9 @@ packages = ["src/gc_memory"]
 
 [tool.mypy]
 strict = true
-plugins = ["numpy.mypy_plugin"]
 
 [[tool.mypy.overrides]]
-module = ["faiss", "faiss.*", "beir.*", "sentence_transformers.*"]
+module = "faiss"
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

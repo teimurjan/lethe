@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-import faiss  # type: ignore[import-untyped]
+import faiss
 import numpy as np
 import numpy.typing as npt
 
@@ -125,7 +125,7 @@ class GCMemoryStore:
 
     def _get_sigma(self, affinity: float) -> float:
         """Compute mutation sigma. Override in baselines for fixed rate."""
-        return self.config.sigma_0 * (1.0 - affinity) ** self.config.gamma
+        return float(self.config.sigma_0 * (1.0 - affinity) ** self.config.gamma)
 
     def _mutate_gc_entries(
         self,

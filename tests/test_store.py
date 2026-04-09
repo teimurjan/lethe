@@ -227,3 +227,34 @@ class TestMutation:
             np.dot(store.entries["a"].embedding, store.entries["a"].original_embedding)
         )
         assert drift < 0.01
+
+
+class TestUtilities:
+    def test_get_all_entries(self, config: Config, rng: np.random.Generator) -> None:
+        entries = [
+            _make_entry("a", _basis_vector(0), rng),
+            _make_entry("b", _basis_vector(1), rng, tier=Tier.APOPTOTIC),
+        ]
+        store = GCMemoryStore(entries, config, rng)
+        all_entries = store.get_all_entries()
+        assert len(all_entries) == 2
+
+    def test_get_active_entries(self, config: Config, rng: np.random.Generator) -> None:
+        entries = [
+            _make_entry("a", _basis_vector(0), rng),
+            _make_entry("b", _basis_vector(1), rng, tier=Tier.APOPTOTIC),
+        ]
+        store = GCMemoryStore(entries, config, rng)
+        active = store.get_active_entries()
+        assert len(active) == 1
+        assert active[0].id == "a"
+
+    def test_decay_skips_current_step(
+        self, config: Config, rng: np.random.Generator
+    ) -> None:
+        """Entry last retrieved at step=100, decay at step=100 -> no change."""
+        entry = _make_entry("a", _basis_vector(0), rng, affinity=0.5)
+        entry.last_retrieved_step = 100
+        store = GCMemoryStore([entry], config, rng)
+        store.run_decay(step=100)
+        assert store.entries["a"].affinity == 0.5
