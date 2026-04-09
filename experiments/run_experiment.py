@@ -93,21 +93,32 @@ def build_query_schedule(
 def log_metrics(
     store: GCMemoryStore,
     step: int,
-    query_embedding: npt.NDArray[np.float32],
-    query_id: str,
+    eval_query_ids: list[str],
+    eval_query_embeddings: npt.NDArray[np.float32],
     qrels: dict[str, dict[str, int]],
     rng: np.random.Generator,
 ) -> dict[str, object]:
-    """Compute all metrics for current store state."""
+    """Compute all metrics for current store state.
+
+    NDCG@10 and Recall@10 are averaged over all evaluation queries with
+    relevance judgments, not just the current query.
+    """
     all_entries = store.get_all_entries()
     active_entries = store.get_active_entries()
 
-    # Retrieval quality: NDCG@10 and Recall@10 against this query's relevance
-    retrieved = store.retrieve(query_embedding, k=store.config.k)
-    retrieved_ids = [e.id for e, _ in retrieved]
-    query_rel = qrels.get(query_id, {})
-    ndcg = ndcg_at_k(retrieved_ids, query_rel, store.config.k)
-    recall = recall_at_k(retrieved_ids, query_rel, store.config.k)
+    # Retrieval quality: average NDCG@10 and Recall@10 over all evaluated queries
+    ndcg_scores = []
+    recall_scores = []
+    for qid, qemb in zip(eval_query_ids, eval_query_embeddings):
+        query_rel = qrels.get(qid, {})
+        if not query_rel:
+            continue
+        retrieved = store.retrieve(qemb, k=store.config.k)
+        retrieved_ids = [e.id for e, _ in retrieved]
+        ndcg_scores.append(ndcg_at_k(retrieved_ids, query_rel, store.config.k))
+        recall_scores.append(recall_at_k(retrieved_ids, query_rel, store.config.k))
+    ndcg = float(np.mean(ndcg_scores)) if ndcg_scores else 0.0
+    recall = float(np.mean(recall_scores)) if recall_scores else 0.0
 
     # Health metrics
     if active_entries:
@@ -167,6 +178,7 @@ def run_arm(
     store: GCMemoryStore,
     query_schedule: list[str],
     query_id_to_idx: dict[str, int],
+    query_ids: list[str],
     query_embeddings: npt.NDArray[np.float32],
     qrels: dict[str, dict[str, int]],
     config: Config,
@@ -189,7 +201,7 @@ def run_arm(
             store.run_decay(step)
 
         if step % 500 == 0:
-            m = log_metrics(store, step, query_embedding, query_id, qrels, rng)
+            m = log_metrics(store, step, query_ids, query_embeddings, qrels, rng)
             metrics_history.append(m)
 
             if initial_diversity is None:
@@ -251,7 +263,7 @@ def main() -> None:
     static_store = StaticStore(deep_copy_entries(base_entries), config, static_rng)
     arms_results["static"] = run_arm(
         "static", static_store, query_schedule, query_id_to_idx,
-        query_embeddings, qrels, config, static_rng,
+        query_ids, query_embeddings, qrels, config, static_rng,
     )
 
     print("\n=== Running Random arm ===")
@@ -259,7 +271,7 @@ def main() -> None:
     random_store = RandomMutationStore(deep_copy_entries(base_entries), config, random_rng)
     arms_results["random"] = run_arm(
         "random", random_store, query_schedule, query_id_to_idx,
-        query_embeddings, qrels, config, random_rng,
+        query_ids, query_embeddings, qrels, config, random_rng,
     )
 
     print("\n=== Running GC arm ===")
@@ -267,7 +279,7 @@ def main() -> None:
     gc_store = GCMemoryStore(deep_copy_entries(base_entries), config, gc_rng)
     arms_results["gc"] = run_arm(
         "gc", gc_store, query_schedule, query_id_to_idx,
-        query_embeddings, qrels, config, gc_rng,
+        query_ids, query_embeddings, qrels, config, gc_rng,
     )
 
     # Determine overall completion
