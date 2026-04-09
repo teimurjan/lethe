@@ -18,8 +18,9 @@ class Tier(Enum):
 class MemoryEntry:
     id: str
     content: str
+    base_embedding: npt.NDArray[np.float32]
     embedding: npt.NDArray[np.float32]
-    original_embedding: npt.NDArray[np.float32]
+    adapter: npt.NDArray[np.float32]
     affinity: float = 0.5
     retrieval_count: int = 0
     generation: int = 0
@@ -27,19 +28,33 @@ class MemoryEntry:
     tier: Tier = Tier.NAIVE
 
 
+def effective_embedding(
+    base: npt.NDArray[np.float32],
+    adapter: npt.NDArray[np.float32],
+) -> npt.NDArray[np.float32]:
+    """Compute unit-normalized effective embedding: normalize(base + adapter)."""
+    combined = base + adapter
+    norm = np.linalg.norm(combined)
+    if norm == 0:
+        return base.copy()
+    return (combined / norm).astype(np.float32)
+
+
 def create_entry(
     entry_id: str,
     content: str,
     embedding: npt.NDArray[np.float32],
 ) -> MemoryEntry:
-    """Create a MemoryEntry with unit-normalized embedding and frozen original copy."""
+    """Create a MemoryEntry with zero adapter. Effective embedding = base embedding."""
     norm = np.linalg.norm(embedding)
     if norm == 0:
         raise ValueError(f"Zero-norm embedding for entry {entry_id}")
-    normalized = (embedding / norm).astype(np.float32)
+    base = (embedding / norm).astype(np.float32)
+    dim = base.shape[0]
     return MemoryEntry(
         id=entry_id,
         content=content,
-        embedding=normalized.copy(),
-        original_embedding=normalized.copy(),
+        base_embedding=base.copy(),
+        embedding=base.copy(),
+        adapter=np.zeros(dim, dtype=np.float32),
     )

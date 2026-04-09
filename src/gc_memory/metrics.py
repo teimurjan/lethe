@@ -37,17 +37,21 @@ def compute_anchor_drift(
     n_sample: int,
     rng: np.random.Generator,
 ) -> float:
-    """Mean (1 - cos(embedding, original_embedding)) over n_sample random entries."""
+    """Mean adapter norm over n_sample random entries.
+
+    With adapter-based mutation, drift is bounded by max_adapter_norm.
+    Adapter norm directly measures how far the effective embedding has
+    moved from the base embedding.
+    """
     if len(entries) == 0:
         return 0.0
     n_sample = min(n_sample, len(entries))
     indices = rng.choice(len(entries), size=n_sample, replace=False)
-    drifts = []
+    norms = []
     for idx in indices:
         entry = entries[idx]
-        cos_sim = float(np.dot(entry.embedding, entry.original_embedding))
-        drifts.append(1.0 - cos_sim)
-    return float(np.mean(drifts))
+        norms.append(float(np.linalg.norm(entry.adapter)))
+    return float(np.mean(norms))
 
 
 def compute_tier_distribution(entries: Sequence[MemoryEntry]) -> dict[Tier, int]:
