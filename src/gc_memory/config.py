@@ -15,7 +15,7 @@ class Config:
     sigma_0: float = 0.05
     gamma: float = 2.0
     n_mutants: int = 5
-    delta: float = 0.005
+    delta: float = 0.001
     max_adapter_norm: float = 0.5
     # MLP adapter
     mlp_hidden: int = 128

@@ -78,10 +78,12 @@ class MLPAdapterStore(GCMemoryStore):
         cfg = self.config
 
         for (entry, _), xenc_score in zip(gc_entries, xenc_scores):
-            # Scale MLP output by adaptive sigma
+            # GC control: skip mutation for high-confidence entries
             sigma = cfg.sigma_0 * (1.0 - entry.affinity) ** cfg.gamma
+            if sigma < 1e-4:
+                continue
 
-            # Train MLP and get delta
+            # Train MLP and get delta (MLP controls its own magnitude)
             delta, loss = train_step(
                 self.predictor, self.optimizer,
                 query, entry.embedding, float(xenc_score),
@@ -90,10 +92,7 @@ class MLPAdapterStore(GCMemoryStore):
             self.total_loss += loss
             self.train_steps += 1
 
-            # Scale delta by adaptive sigma (GC control loop)
-            delta = delta * (sigma / max(float(np.linalg.norm(delta)), 1e-8))
-
-            # Clip adapter norm
+            # Clip adapter norm (safety bound, replaces sigma scaling)
             new_adapter = entry.adapter + delta
             adapter_norm = float(np.linalg.norm(new_adapter))
             if adapter_norm > cfg.max_adapter_norm:
