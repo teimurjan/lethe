@@ -52,7 +52,7 @@ class MLPAdapterStore(GCMemoryStore):
     ) -> None:
         super().__init__(entries, config, rng, cross_encoder, bi_encoder)
         self.predictor = DeltaPredictor(embed_dim=384, hidden=config.mlp_hidden)
-        self.optimizer = torch.optim.SGD(
+        self.optimizer = torch.optim.Adam(
             self.predictor.parameters(), lr=config.mlp_lr
         )
         self.total_loss = 0.0
@@ -78,12 +78,9 @@ class MLPAdapterStore(GCMemoryStore):
         cfg = self.config
 
         for (entry, _), xenc_score in zip(gc_entries, xenc_scores):
-            # GC control: skip mutation for high-confidence entries
-            sigma = cfg.sigma_0 * (1.0 - entry.affinity) ** cfg.gamma
-            if sigma < 1e-4:
-                continue
-
-            # Train MLP and get delta (MLP controls its own magnitude)
+            # Train MLP and get delta. The MLP IS the quality gate:
+            # it learns which direction and magnitude to use. No cosine
+            # threshold, no sigma scaling. Just train and apply.
             delta, loss = train_step(
                 self.predictor, self.optimizer,
                 query, entry.embedding, float(xenc_score),
@@ -92,22 +89,21 @@ class MLPAdapterStore(GCMemoryStore):
             self.total_loss += loss
             self.train_steps += 1
 
-            # Clip adapter norm (safety bound, replaces sigma scaling)
+            # Clip per-step delta magnitude, then clip total adapter norm
+            delta_norm = float(np.linalg.norm(delta))
+            if delta_norm > cfg.max_delta_per_step:
+                delta = delta * (cfg.max_delta_per_step / delta_norm)
+
             new_adapter = entry.adapter + delta
             adapter_norm = float(np.linalg.norm(new_adapter))
             if adapter_norm > cfg.max_adapter_norm:
                 new_adapter = new_adapter * (cfg.max_adapter_norm / adapter_norm)
 
             new_eff = effective_embedding(entry.base_embedding, new_adapter)
-
-            # Accept if improves cosine with query
-            old_cos = float(np.dot(entry.embedding, query))
-            new_cos = float(np.dot(new_eff, query))
-            if new_cos - old_cos > cfg.delta:
-                entry.adapter = new_adapter
-                entry.embedding = new_eff
-                entry.generation += 1
-                any_mutated = True
+            entry.adapter = new_adapter
+            entry.embedding = new_eff
+            entry.generation += 1
+            any_mutated = True
 
         return any_mutated
 

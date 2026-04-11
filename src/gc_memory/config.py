@@ -17,9 +17,10 @@ class Config:
     n_mutants: int = 5
     delta: float = 0.001
     max_adapter_norm: float = 0.5
+    max_delta_per_step: float = 0.01
     # MLP adapter
     mlp_hidden: int = 128
-    mlp_lr: float = 1e-3
+    mlp_lr: float = 5e-3
     # Cross-encoder thresholds
     xenc_relevant: float = 0.0
     xenc_irrelevant: float = -4.0
@@ -37,7 +38,7 @@ class Config:
     lambda_decay: float = 0.01
     decay_interval: int = 100
     # Experiment
-    n_queries: int = 2_000
+    n_queries: int = 10_000
     hot_set_fraction: float = 0.2
     hot_set_probability: float = 0.7
     random_seed: int = 42
