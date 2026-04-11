@@ -30,8 +30,8 @@ class Config:
     merge_affinity_threshold: float = 0.6
     # Tier transitions
     promote_naive_threshold: int = 3
-    promote_memory_affinity: float = 0.75
-    promote_memory_generation: int = 5
+    promote_memory_affinity: float = 0.65
+    promote_memory_generation: int = 3
     apoptosis_affinity: float = 0.15
     apoptosis_idle_steps: int = 1000
     # Decay
