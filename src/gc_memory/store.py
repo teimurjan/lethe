@@ -6,6 +6,7 @@ from typing import Any
 import faiss
 import numpy as np
 import numpy.typing as npt
+from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
 from gc_memory.config import Config
 from gc_memory.entry import MemoryEntry, Tier, effective_embedding
@@ -35,6 +36,7 @@ class GCMemoryStore:
         self._step_count = 0
         self._id_order: list[str] = []
         self._index: faiss.IndexFlatIP = faiss.IndexFlatIP(0)
+        self._bm25: BM25Okapi | None = None
         self._rebuild_index()
 
     def _rebuild_index(self) -> None:
@@ -44,10 +46,15 @@ class GCMemoryStore:
         self._id_order = [eid for eid, _ in active]
         if not active:
             self._index = faiss.IndexFlatIP(384)
+            self._bm25 = None
             return
+        # FAISS vector index
         embeddings = np.stack([e.embedding for _, e in active]).astype(np.float32)
         self._index = faiss.IndexFlatIP(embeddings.shape[1])
         self._index.add(embeddings)
+        # BM25 sparse index
+        tokenized = [e.content.lower().split() for _, e in active]
+        self._bm25 = BM25Okapi(tokenized)
 
     def retrieve(
         self,
@@ -68,7 +75,7 @@ class GCMemoryStore:
         if self._index.ntotal == 0:
             return [], []
 
-        # Stage 1: FAISS retrieval
+        # Stage 1: FAISS retrieval (dense vector)
         n_fetch = min(self.config.k_fetch, self._index.ntotal)
         query_2d = query.reshape(1, -1).astype(np.float32)
         distances, indices = self._index.search(query_2d, n_fetch)
@@ -78,19 +85,27 @@ class GCMemoryStore:
             if idx >= 0:
                 faiss_ids.append(self._id_order[idx])
 
-        # Stage 2: Rescue index lookup (learned cache of FAISS misses)
+        # Stage 2: BM25 retrieval (sparse keyword)
+        bm25_ids: list[str] = []
+        if self._bm25 is not None and query_text:
+            tokens = query_text.lower().split()
+            scores = self._bm25.get_scores(tokens)
+            top_bm25 = np.argsort(scores)[::-1][:self.config.k_fetch]
+            bm25_ids = [self._id_order[i] for i in top_bm25 if i < len(self._id_order)]
+
+        # Stage 3: Rescue index lookup (learned cache of FAISS misses)
         rescue_ids = self.rescue.lookup(
             query,
             top_k=self.config.rescue_lookup_k,
             similarity_threshold=self.config.rescue_similarity_threshold,
         )
 
-        # Stage 3: Graph expansion (kept for completeness, may be no-op)
+        # Stage 4: Graph expansion
         graph_ids = self.graph.expand(
             faiss_ids[:self.config.graph_seed_k],
             top_k_per_seed=self.config.graph_expand_per_seed,
         )
-        all_candidate_ids = list(dict.fromkeys(faiss_ids + rescue_ids + graph_ids))
+        all_candidate_ids = list(dict.fromkeys(faiss_ids + bm25_ids + rescue_ids + graph_ids))
 
         # Stage 3: Cross-encoder rerank (or bi-encoder fallback)
         candidates = [

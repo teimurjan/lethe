@@ -14,6 +14,7 @@ dependencies = [
     "beir>=2.0",
     "datasets>=2.0",
     "matplotlib>=3.7",
+    "rank_bm25>=0.2",
     "tqdm>=4.60",
     "pytest>=7.0",
     "pytest-cov>=4.0",
@@ -27,7 +28,7 @@ packages = ["src/gc_memory"]
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["faiss", "datasets", "beir.*", "torch", "torch.*"]
+module = ["faiss", "datasets", "beir.*", "torch", "torch.*", "rank_bm25"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
