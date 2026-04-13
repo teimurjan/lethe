@@ -207,4 +207,25 @@ Key difference from GC approaches: RIF operates at the **candidate selection sta
 
 Suppression stats: 11,254 entries suppressed (5.6% of corpus), max 0.169, mean 0.058. Zero entries hit heavy suppression (>0.5) — the decay mechanism keeps things balanced.
 
-**Finding**: First positive result from a learned mechanism on top of hybrid+xenc across 11 checkpoints. The effect is modest (+2.0%) but operates in the right direction: candidate pool recall improved by 2.3%, confirming that suppression is letting new relevant entries into the cross-encoder pool. Current hyperparameters are conservative (max suppression reached only 0.169 out of 1.0 cap). Stronger parameters and longer burn-in may amplify the effect.
+**Finding**: First positive result from a learned mechanism on top of hybrid+xenc across 11 checkpoints. The effect is modest (+2.0%) but operates in the right direction: candidate pool recall improved by 2.3%, confirming that suppression is letting new relevant entries into the cross-encoder pool.
+
+**Hyperparameter sweep**: tested 6 configs from conservative to extreme. All aggressive configs (higher alpha, faster accumulation, no decay) went negative (-1.2% to -1.8%). The conservative config is optimal for global RIF. More aggressive = worse because cue-independent suppression hurts entries that are distractors for some queries but relevant for others.
+
+## Checkpoint 12: Clustered RIF (cue-dependent suppression)
+
+Global RIF's ceiling is ~+1-2% because suppression is cue-independent: an entry suppressed for "travel" queries is also suppressed for "food" queries. The SAM model (Raaijmakers & Shiffrin, 1981) predicts cue-dependent retrieval probabilities — suppression should be tied to the retrieval context, not the item alone.
+
+**Mechanism**: K-means cluster query embeddings into groups. Maintain separate suppression scores per (entry, query_cluster) pair. At retrieval, only the matching cluster's suppression applies. An entry gets suppressed as a distractor for "travel" queries but remains unsuppressed for "food" queries.
+
+**LongMemEval, 500-query eval, 5000-step burn-in**
+
+| Config | NDCG@10 | vs baseline |
+|--------|---------|-------------|
+| baseline (no RIF) | 0.2960 | — |
+| global RIF | 0.2993 | +1.1% |
+| 10 clusters | 0.3113 | +5.2% |
+| **30 clusters** | **0.3132** | **+5.8%** |
+| 50 clusters | 0.3067 | +3.6% |
+| 100 clusters | 0.3092 | +4.5% |
+
+**Finding**: 30-cluster RIF produces +5.8% NDCG and +6.8% recall@30 — 5x the effect of global RIF. The inverted-U on cluster count: 10 is too coarse (diverse queries share suppression), 100 is too fine (insufficient signal per cluster). 30 clusters with 500 queries = ~17 queries/cluster, enough for suppression to accumulate within each topic.

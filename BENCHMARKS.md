@@ -42,18 +42,19 @@ Previous GC approaches also tested (embedding mutation, MLP adapter, segmentatio
 
 ## RIF (Retrieval-Induced Forgetting)
 
-First learned mechanism to improve retrieval quality on top of hybrid+xenc (checkpoint 11).
+First learned mechanism to improve retrieval quality on top of hybrid+xenc.
 
-Dataset: LongMemEval S, 500-query full eval, 2000-step burn-in.
+Dataset: LongMemEval S, 500-query full eval, 5000-step burn-in.
 
-| Metric | Static | RIF | Δ |
-|--------|--------|-----|---|
-| NDCG@10 | 0.2960 | 0.3020 | +2.0% |
-| Recall@30 | 0.4103 | 0.4196 | +2.3% |
+| System | NDCG@10 | vs baseline |
+|--------|---------|-------------|
+| Baseline (no RIF) | 0.2960 | — |
+| Global RIF | 0.2993 | +1.1% |
+| **Clustered RIF (30 clusters)** | **0.3132** | **+5.8%** |
 
 Config: suppression_rate=0.1, reinforcement_rate=0.05, alpha=0.3, decay_lambda=0.005.
 
-Mechanism: suppress entries that repeatedly make the candidate pool but get rejected by cross-encoder. Operates at candidate selection stage (before xenc), not scoring stage (where GC failed).
+Mechanism: suppress entries that repeatedly make the candidate pool but get rejected by cross-encoder. Clustered RIF maintains per-(entry, query_cluster) suppression so an entry suppressed for one topic stays available for others. Operates at candidate selection stage (before xenc), not scoring stage (where GC failed).
 
 ## How to reproduce
 

@@ -7,11 +7,21 @@ previously-excluded relevant entries.
 
 Based on Anderson's inhibition theory (1994) and the SAM competitive sampling
 model (Raaijmakers & Shiffrin, 1981). First implementation in an AI memory system.
+
+Supports two modes:
+- Global (cue-independent): one suppression score per entry.
+- Clustered (cue-dependent): suppression per (entry, query_cluster) pair.
+  An entry suppressed for "travel" queries stays unsuppressed for "food" queries.
+  Based on the SAM model's cue-dependent retrieval probability.
 """
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from collections import defaultdict
+from dataclasses import dataclass, field
+
+import numpy as np
+import numpy.typing as npt
 
 
 @dataclass(frozen=True)
@@ -21,6 +31,7 @@ class RIFConfig:
     max_suppression: float = 1.0
     decay_lambda: float = 0.005
     alpha: float = 0.3  # weight of suppression in score adjustment
+    n_clusters: int = 0  # 0 = global (cue-independent), >0 = clustered
 
 
 def competition_strength(
@@ -104,3 +115,72 @@ def update_suppression(
         updated[eid] = max(0.0, old - config.reinforcement_rate)
 
     return updated
+
+
+# --- Clustered (cue-dependent) suppression ---
+
+
+def build_clusters(
+    embeddings: npt.NDArray[np.float32],
+    n_clusters: int,
+) -> npt.NDArray[np.float32]:
+    """K-means clustering on query embeddings. Returns centroids."""
+    import faiss
+
+    dim = embeddings.shape[1]
+    kmeans = faiss.Kmeans(dim, n_clusters, niter=20, seed=42)
+    kmeans.train(embeddings.astype(np.float32))
+    return kmeans.centroids
+
+
+def assign_cluster(
+    query_emb: npt.NDArray[np.float32],
+    centroids: npt.NDArray[np.float32],
+) -> int:
+    """Assign a query to its nearest cluster centroid."""
+    sims = query_emb @ centroids.T
+    return int(np.argmax(sims))
+
+
+class ClusteredSuppressionState:
+    """Per-(entry, cluster) suppression state for cue-dependent RIF."""
+
+    def __init__(self) -> None:
+        # cluster_id → {entry_id → suppression_score}
+        self._scores: dict[int, dict[str, float]] = defaultdict(dict)
+        self._last_updated: dict[int, dict[str, int]] = defaultdict(dict)
+
+    def get_cluster_scores(self, cluster_id: int) -> dict[str, float]:
+        return self._scores[cluster_id]
+
+    def get_cluster_last_updated(self, cluster_id: int) -> dict[str, int]:
+        return self._last_updated[cluster_id]
+
+    def update_cluster(
+        self, cluster_id: int, updates: dict[str, float], step: int,
+    ) -> None:
+        for eid, score in updates.items():
+            self._scores[cluster_id][eid] = score
+            self._last_updated[cluster_id][eid] = step
+
+    def total_suppressed(self, threshold: float = 0.01) -> int:
+        seen: set[str] = set()
+        for cluster_scores in self._scores.values():
+            for eid, s in cluster_scores.items():
+                if s > threshold:
+                    seen.add(eid)
+        return len(seen)
+
+    def max_suppression(self) -> float:
+        mx = 0.0
+        for cluster_scores in self._scores.values():
+            for s in cluster_scores.values():
+                mx = max(mx, s)
+        return mx
+
+    def mean_suppression(self, threshold: float = 0.01) -> float:
+        values = [
+            s for cluster_scores in self._scores.values()
+            for s in cluster_scores.values() if s > threshold
+        ]
+        return float(np.mean(values)) if values else 0.0

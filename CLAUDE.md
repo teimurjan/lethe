@@ -73,6 +73,6 @@ The 0.3680 is from BM25+vector+cross-encoder reranking (standard IR). The GC mec
 
 ## research status
 
-11 checkpoints. GC mechanisms (checkpoints 1-10): all failed to improve retrieval quality. Checkpoint 11: RIF (Retrieval-Induced Forgetting) is the first learned mechanism to improve retrieval on top of hybrid+xenc (+2.0% NDCG, +2.3% recall@30). RIF operates at candidate selection (before xenc), not scoring (where GC failed). Conservative hyperparameters — room to amplify.
+12 checkpoints. GC mechanisms (checkpoints 1-10): all failed to improve retrieval quality. Checkpoint 11: RIF (global) = +1.1% NDCG. Checkpoint 12: Clustered RIF (30 query clusters) = **+5.8% NDCG, +6.8% recall@30**. Per-(entry, query_cluster) suppression prevents cross-topic interference. RIF operates at candidate selection (before xenc), not scoring (where GC failed).
 
 Full research journey: [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md)
