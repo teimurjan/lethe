@@ -28,6 +28,7 @@ class MemoryEntry:
     generation: int = 0
     last_retrieved_step: int = 0
     tier: Tier = Tier.NAIVE
+    suppression: float = 0.0
 
 
 def effective_embedding(

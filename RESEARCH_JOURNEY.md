@@ -187,5 +187,24 @@ Independent integrity audit of all benchmark results:
 - Rescue cache (marginal gains, doesn't generalize)
 - Adaptive search depth (works but is just "increase k_fetch")
 
-### Key insight
-The biological control loop (adaptive rate, tier lifecycle, decay) is sound engineering for **memory management**. It is not useful for **retrieval quality**. Modern IR techniques (BM25 + cross-encoder reranking) are the right tool for retrieval. The GC mechanism's value is in lifecycle management: promoting frequently-used memories, decaying stale ones, deduplicating, and archiving unused entries. Future work should focus on this lifecycle layer rather than trying to improve retrieval quality.
+### Key insight (checkpoints 1-10)
+The biological control loop (adaptive rate, tier lifecycle, decay) is sound engineering for **memory management**. It is not useful for **retrieval quality**. Modern IR techniques (BM25 + cross-encoder reranking) are the right tool for retrieval. The GC mechanism's value is in lifecycle management: promoting frequently-used memories, decaying stale ones, deduplicating, and archiving unused entries.
+
+## Checkpoint 11: Retrieval-Induced Forgetting (RIF)
+
+Shifted from biology-inspired mutation to cognitive science-inspired forgetting. RIF is a 30-year-old finding in memory psychology (Anderson, 1994): when memory A is retrieved, competing memories that were activated but not selected are actively suppressed. First implementation in an AI memory system.
+
+**Mechanism**: After cross-encoder reranking, entries that made it into the candidate pool but ranked poorly (high initial similarity, low cross-encoder score = distractors) accumulate a suppression score. Before the next retrieval, suppression is subtracted from hybrid search RRF scores, pushing chronic distractors down and freeing candidate slots for previously-excluded entries.
+
+Key difference from GC approaches: RIF operates at the **candidate selection stage** (before cross-encoder), not the scoring stage. All prior GC mechanisms modified scores that the cross-encoder overwrote. RIF changes *which entries reach* the cross-encoder.
+
+**LongMemEval, 500-query full eval, 2000-step burn-in**
+
+| Metric | Static | RIF | Delta |
+|--------|--------|-----|-------|
+| NDCG@10 | 0.2960 | 0.3020 | +2.0% |
+| Recall@30 | 0.4103 | 0.4196 | +2.3% |
+
+Suppression stats: 11,254 entries suppressed (5.6% of corpus), max 0.169, mean 0.058. Zero entries hit heavy suppression (>0.5) — the decay mechanism keeps things balanced.
+
+**Finding**: First positive result from a learned mechanism on top of hybrid+xenc across 11 checkpoints. The effect is modest (+2.0%) but operates in the right direction: candidate pool recall improved by 2.3%, confirming that suppression is letting new relevant entries into the cross-encoder pool. Current hyperparameters are conservative (max suppression reached only 0.169 out of 1.0 cap). Stronger parameters and longer burn-in may amplify the effect.

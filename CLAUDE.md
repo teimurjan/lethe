@@ -20,6 +20,7 @@ src/gc_memory/
 ├── db.py             # SQLite persistence
 ├── vectors.py        # FAISS + BM25 index management
 ├── reranker.py       # Cross-encoder + adaptive depth
+├── rif.py            # Retrieval-Induced Forgetting (competitor suppression)
 ├── dedup.py          # Hash + cosine deduplication
 ├── entry.py          # MemoryEntry dataclass + Tier enum
 ├── config.py         # Hyperparameters
@@ -54,6 +55,7 @@ uv run python benchmarks/run_benchmark.py
 - Adaptive search depth: shallow k=30 for confident queries, deep k=200 when unsure
 - Cosine 0.95 dedup on add (removes 4.6% of LongMemEval, +6.5% NDCG)
 - Tier lifecycle: naive → gc → memory (with decay and apoptosis)
+- RIF: retrieval-induced forgetting suppresses chronic false positives at candidate selection stage
 - SQLite + .npz + FAISS for persistence (no external services)
 
 ## benchmark results
@@ -71,6 +73,6 @@ The 0.3680 is from BM25+vector+cross-encoder reranking (standard IR). The GC mec
 
 ## research status
 
-10 approaches tested for improving retrieval quality with GC mechanism: all failed. The GC mechanism's value is in memory LIFECYCLE MANAGEMENT (tiers, decay, dedup), not retrieval quality. Hybrid+xenc is the retrieval answer. Future work: focus GC on lifecycle layer.
+11 checkpoints. GC mechanisms (checkpoints 1-10): all failed to improve retrieval quality. Checkpoint 11: RIF (Retrieval-Induced Forgetting) is the first learned mechanism to improve retrieval on top of hybrid+xenc (+2.0% NDCG, +2.3% recall@30). RIF operates at candidate selection (before xenc), not scoring (where GC failed). Conservative hyperparameters — room to amplify.
 
 Full research journey: [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md)

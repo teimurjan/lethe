@@ -36,6 +36,12 @@ class Config:
     # Decay
     lambda_decay: float = 0.01
     decay_interval: int = 100
+    # RIF (Retrieval-Induced Forgetting)
+    rif_suppression_rate: float = 0.1
+    rif_reinforcement_rate: float = 0.05
+    rif_max_suppression: float = 1.0
+    rif_decay_lambda: float = 0.005
+    rif_alpha: float = 0.3
     # Experiment
     n_queries: int = 10_000
     hot_set_fraction: float = 0.2

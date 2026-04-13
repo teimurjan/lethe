@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS entries (
     retrieval_count INTEGER DEFAULT 0,
     last_retrieved_step INTEGER DEFAULT 0,
     content_hash TEXT,
+    suppression REAL DEFAULT 0.0,
     created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
 );
@@ -60,11 +61,11 @@ class MemoryDB:
         self._conn.execute(
             """INSERT OR REPLACE INTO entries
             (id, content, session_id, turn_idx, tier, affinity,
-             retrieval_count, last_retrieved_step, content_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             retrieval_count, last_retrieved_step, content_hash, suppression)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (entry.id, entry.content, entry.session_id, entry.turn_idx,
              entry.tier.value, entry.affinity, entry.retrieval_count,
-             entry.last_retrieved_step, content_hash),
+             entry.last_retrieved_step, content_hash, entry.suppression),
         )
         self._conn.commit()
 
@@ -79,27 +80,28 @@ class MemoryDB:
     def update_entry(self, entry: MemoryEntry) -> None:
         self._conn.execute(
             """UPDATE entries SET tier=?, affinity=?, retrieval_count=?,
-            last_retrieved_step=?, updated_at=datetime('now')
+            last_retrieved_step=?, suppression=?, updated_at=datetime('now')
             WHERE id=?""",
             (entry.tier.value, entry.affinity, entry.retrieval_count,
-             entry.last_retrieved_step, entry.id),
+             entry.last_retrieved_step, entry.suppression, entry.id),
         )
         self._conn.commit()
 
     def batch_update_entries(self, entries: list[MemoryEntry]) -> None:
         self._conn.executemany(
             """UPDATE entries SET tier=?, affinity=?, retrieval_count=?,
-            last_retrieved_step=?, updated_at=datetime('now')
+            last_retrieved_step=?, suppression=?, updated_at=datetime('now')
             WHERE id=?""",
             [(e.tier.value, e.affinity, e.retrieval_count,
-              e.last_retrieved_step, e.id) for e in entries],
+              e.last_retrieved_step, e.suppression, e.id) for e in entries],
         )
         self._conn.commit()
 
     def load_all_entries(self) -> list[dict[str, object]]:
         rows = self._conn.execute(
             "SELECT id, content, session_id, turn_idx, tier, affinity, "
-            "retrieval_count, last_retrieved_step FROM entries WHERE tier != 'apoptotic'"
+            "retrieval_count, last_retrieved_step, suppression "
+            "FROM entries WHERE tier != 'apoptotic'"
         ).fetchall()
         return [dict(r) for r in rows]
 

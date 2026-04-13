@@ -40,9 +40,25 @@ Previous GC approaches also tested (embedding mutation, MLP adapter, segmentatio
 - **Deduplication**: cosine 0.95 dedup removes 4.6% of near-duplicate entries on LongMemEval, freeing retrieval slots (+6.5% NDCG when applied to the corpus before indexing).
 - **Cost amortization** (theoretical): rescue cache can reduce cross-encoder calls for repeated query patterns by caching deep search results.
 
+## RIF (Retrieval-Induced Forgetting)
+
+First learned mechanism to improve retrieval quality on top of hybrid+xenc (checkpoint 11).
+
+Dataset: LongMemEval S, 500-query full eval, 2000-step burn-in.
+
+| Metric | Static | RIF | Δ |
+|--------|--------|-----|---|
+| NDCG@10 | 0.2960 | 0.3020 | +2.0% |
+| Recall@30 | 0.4103 | 0.4196 | +2.3% |
+
+Config: suppression_rate=0.1, reinforcement_rate=0.05, alpha=0.3, decay_lambda=0.005.
+
+Mechanism: suppress entries that repeatedly make the candidate pool but get rejected by cross-encoder. Operates at candidate selection stage (before xenc), not scoring stage (where GC failed).
+
 ## How to reproduce
 
 ```bash
 uv run python experiments/data_prep.py --dataset longmemeval
 uv run python benchmarks/run_benchmark.py
+uv run python benchmarks/run_rif_benchmark.py
 ```

@@ -46,6 +46,22 @@ class VectorIndex:
         _, indices = self._faiss.search(query_emb.reshape(1, -1).astype(np.float32), n)
         return [self._ids[i] for i in indices[0] if 0 <= i < len(self._ids)]
 
+    def search_vector_scored(
+        self, query_emb: npt.NDArray[np.float32], k: int,
+    ) -> list[tuple[str, float]]:
+        """Return top-k (entry_id, cosine_score) by dense vector similarity."""
+        if self._faiss.ntotal == 0:
+            return []
+        n = min(k, self._faiss.ntotal)
+        distances, indices = self._faiss.search(
+            query_emb.reshape(1, -1).astype(np.float32), n,
+        )
+        return [
+            (self._ids[i], float(distances[0][rank]))
+            for rank, i in enumerate(indices[0])
+            if 0 <= i < len(self._ids)
+        ]
+
     def search_bm25(self, query_text: str, k: int) -> list[str]:
         """Return top-k entry IDs by BM25 keyword match."""
         if self._bm25 is None or not query_text:
@@ -55,6 +71,18 @@ class VectorIndex:
         top_idx = np.argsort(scores)[::-1][:k]
         return [self._ids[i] for i in top_idx if i < len(self._ids)]
 
+    def search_bm25_scored(self, query_text: str, k: int) -> list[tuple[str, float]]:
+        """Return top-k (entry_id, bm25_score) by keyword match."""
+        if self._bm25 is None or not query_text:
+            return []
+        tokens = query_text.lower().split()
+        scores = self._bm25.get_scores(tokens)
+        top_idx = np.argsort(scores)[::-1][:k]
+        return [
+            (self._ids[i], float(scores[i]))
+            for i in top_idx if i < len(self._ids)
+        ]
+
     def search_hybrid(
         self, query_emb: npt.NDArray[np.float32], query_text: str, k: int,
     ) -> list[str]:
@@ -62,6 +90,20 @@ class VectorIndex:
         vec_ids = self.search_vector(query_emb, k)
         bm25_ids = self.search_bm25(query_text, k)
         return list(dict.fromkeys(vec_ids + bm25_ids))
+
+    def search_hybrid_scored(
+        self, query_emb: npt.NDArray[np.float32], query_text: str, k: int,
+    ) -> list[tuple[str, float]]:
+        """Return deduplicated union with RRF scores (1/rank fusion)."""
+        vec_scored = self.search_vector_scored(query_emb, k)
+        bm25_scored = self.search_bm25_scored(query_text, k)
+        rrf: dict[str, float] = {}
+        for rank, (eid, _) in enumerate(vec_scored):
+            rrf[eid] = rrf.get(eid, 0.0) + 1.0 / (rank + 60)  # RRF k=60
+        for rank, (eid, _) in enumerate(bm25_scored):
+            rrf[eid] = rrf.get(eid, 0.0) + 1.0 / (rank + 60)
+        scored = sorted(rrf.items(), key=lambda x: x[1], reverse=True)
+        return scored
 
     def save(self, path: Path) -> None:
         """Persist FAISS index to disk."""
