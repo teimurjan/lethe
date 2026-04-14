@@ -73,6 +73,6 @@ The 0.3680 is from BM25+vector+cross-encoder reranking (standard IR). The GC mec
 
 ## research status
 
-13 checkpoints. GC mechanisms (checkpoints 1-10): all failed to improve retrieval quality. Checkpoint 11: RIF (global) = +1.1% NDCG. Checkpoint 12: Clustered RIF (30 query clusters) = +5.8%. Checkpoint 13: Clustered RIF + rank-gap competition formula = **+6.5% NDCG, +9.5% recall@30**. RIF operates at candidate selection (before xenc), not scoring (where GC failed).
+14 checkpoints. Checkpoints 1-10 (GC mechanisms): all failed. Checkpoint 11 (global RIF): +1.1%. Checkpoint 12 (clustered RIF): +5.8%. Checkpoint 13 (clustered + rank-gap): **+6.5% NDCG, +9.5% recall@30** — best. Checkpoint 14 (exploration + rescue list): validated negative (-2.6pp at 500-query scale; fast benchmark was variance). Retrieval-only ceiling reached — next lever is LLM augmentation layer.
 
 Full research journey: [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md)

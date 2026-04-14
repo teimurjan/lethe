@@ -247,3 +247,26 @@ The original `competition_strength(initial_rank, xenc_score) = (1 - initial_rank
 | **clustered30 + gap** | **0.3152 (+6.5%)** | **0.4494 (+9.5%)** |
 
 **Finding**: Gap formula alone is 2.4x better than original (+2.6% vs +1.1%). Stacks with clustering — clustered+gap is the new best at +6.5% NDCG. Recall@30 jumps to +9.5% (largest gain in any checkpoint). Gap formula suppresses 30% fewer entries (10k vs 14k) but produces stronger results — it's more targeted, not more aggressive. The recall gain shows gap better identifies true distractors, so more genuinely-relevant entries enter the candidate pool.
+
+## Checkpoint 14: Exploration + rescue list (negative result)
+
+RIF pushes false positives down; the symmetric mechanism would pull false negatives up. Idea: periodically fetch top-80 (not top-30), xenc positions 31-80, and add high-scoring finds to a per-cluster rescue list. Future queries in that cluster inject the top-K rescues into the candidate pool.
+
+Iterated three times on 100-query fast benchmark:
+1. Naive (inject all cluster rescues): dense exploration hurt (-0.8%) due to displacing legitimate top-30 candidates.
+2. Threshold sweep: higher thresholds produced fewer rescues but didn't fix dense. Volume, not quality, was the issue.
+3. Smart top-K injection: inject only top-3 rescues per query by stored xenc score. Fast benchmark showed +2.5% vs +1.1% for RIF-only.
+
+**Full validation (3000 burn-in, 500-query eval): negative.**
+
+| Config | NDCG | vs baseline |
+|--------|------|-------------|
+| baseline | 0.2926 | — |
+| clustered+gap | 0.3124 | +6.8% |
+| +rescue-top3 | 0.3049 | +4.2% |
+| +rescue-top5 | 0.3011 | +2.9% |
+| +rescue-top10 | 0.3003 | +2.7% |
+
+**Finding**: the fast benchmark's +2.5% was variance from the noisy 100-query baseline. At scale, rescue *degrades* retrieval by -2.6pp. Causes: (1) injection creates noise competitors that mislead RIF's winner/loser identification, (2) fixed injection score creates artificial bias, (3) one-time xenc validation is too weak a persistence signal.
+
+**Conclusion**: clustered+gap (checkpoint 13) remains the retrieval-only best at +6.8% NDCG / +10.3% recall@30. Further retrieval-only mechanisms show diminishing returns. Next lever is the LLM augmentation layer (prospective indexing, write-time query generation) rather than more retrieval refinement.
