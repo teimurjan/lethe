@@ -229,3 +229,21 @@ Global RIF's ceiling is ~+1-2% because suppression is cue-independent: an entry 
 | 100 clusters | 0.3092 | +4.5% |
 
 **Finding**: 30-cluster RIF produces +5.8% NDCG and +6.8% recall@30 — 5x the effect of global RIF. The inverted-U on cluster count: 10 is too coarse (diverse queries share suppression), 100 is too fine (insufficient signal per cluster). 30 clusters with 500 queries = ~17 queries/cluster, enough for suppression to accumulate within each topic.
+
+## Checkpoint 13: Rank-gap competition formula
+
+The original `competition_strength(initial_rank, xenc_score) = (1 - initial_rank/pool) * sigmoid(-xenc)` treats any top-ranked entry as a strong competitor if cross-encoder rejects it. But entries that were ranked #1 by both initial hybrid search and cross-encoder aren't distractors — they're near-winners.
+
+**Mechanism**: use the *rank drop* from initial retrieval to cross-encoder as the signal. `competition_strength_gap = max(0, xenc_rank - initial_rank) / pool * sigmoid(-xenc_score)`. An entry ranked #1 initially but #25 by xenc has gap=0.8 — strongest distractor. An entry ranked #1 by both has gap=0 — not a distractor.
+
+**LongMemEval, 500-query eval, 5000-step burn-in**
+
+| Config | NDCG@10 | Recall@30 |
+|--------|---------|-----------|
+| baseline | 0.2960 | 0.4103 |
+| global + original | 0.2993 (+1.1%) | 0.4142 (+0.9%) |
+| global + gap | 0.3037 (+2.6%) | 0.4250 (+3.6%) |
+| clustered30 + original | 0.3132 (+5.8%) | 0.4381 (+6.8%) |
+| **clustered30 + gap** | **0.3152 (+6.5%)** | **0.4494 (+9.5%)** |
+
+**Finding**: Gap formula alone is 2.4x better than original (+2.6% vs +1.1%). Stacks with clustering — clustered+gap is the new best at +6.5% NDCG. Recall@30 jumps to +9.5% (largest gain in any checkpoint). Gap formula suppresses 30% fewer entries (10k vs 14k) but produces stronger results — it's more targeted, not more aggressive. The recall gain shows gap better identifies true distractors, so more genuinely-relevant entries enter the candidate pool.

@@ -8,6 +8,7 @@ from gc_memory.rif import (
     RIFConfig,
     apply_suppression_penalty,
     competition_strength,
+    competition_strength_gap,
     update_suppression,
 )
 
@@ -35,6 +36,31 @@ class TestCompetitionStrength:
         pos = competition_strength(0, 30, 1.0)
         neg = competition_strength(0, 30, -1.0)
         assert neg > pos  # negative xenc = more rejection = more suppression
+
+
+class TestCompetitionStrengthGap:
+    def test_large_gap_with_rejection_is_high(self) -> None:
+        # Rank #0 initially, #25 by xenc, strongly rejected: classic distractor
+        s = competition_strength_gap(initial_rank=0, xenc_rank=25, pool_size=30, xenc_score=-5.0)
+        assert s > 0.7
+
+    def test_no_gap_is_zero(self) -> None:
+        # Same rank in both = not a distractor, just ranked where it belongs
+        s = competition_strength_gap(initial_rank=5, xenc_rank=5, pool_size=30, xenc_score=-2.0)
+        assert s == 0.0
+
+    def test_negative_gap_is_zero(self) -> None:
+        # xenc promoted it (better rank) — not a competitor
+        s = competition_strength_gap(initial_rank=15, xenc_rank=3, pool_size=30, xenc_score=2.0)
+        assert s == 0.0
+
+    def test_gap_with_positive_xenc_is_low(self) -> None:
+        # Dropped from #0 to #20 but xenc still likes it = near-winner, not distractor
+        s = competition_strength_gap(initial_rank=0, xenc_rank=20, pool_size=30, xenc_score=3.0)
+        assert s < 0.1
+
+    def test_singleton_pool(self) -> None:
+        assert competition_strength_gap(0, 0, 1, -3.0) == 0.0
 
 
 class TestApplySuppressionPenalty:

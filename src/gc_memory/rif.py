@@ -32,6 +32,7 @@ class RIFConfig:
     decay_lambda: float = 0.005
     alpha: float = 0.3  # weight of suppression in score adjustment
     n_clusters: int = 0  # 0 = global (cue-independent), >0 = clustered
+    use_rank_gap: bool = False  # use rank-gap competition formula instead of original
 
 
 def competition_strength(
@@ -56,6 +57,33 @@ def competition_strength(
     return rank_score * rejection
 
 
+def competition_strength_gap(
+    initial_rank: int,
+    xenc_rank: int,
+    pool_size: int,
+    xenc_score: float,
+) -> float:
+    """Rank-gap competition: measures how much an entry dropped after rerank.
+
+    Intuition: an entry ranked #1 by BM25 but #25 by cross-encoder is
+    the most misleading distractor. Entries that kept a similar rank in
+    both (e.g., #15 → #15) are not particularly misleading — they just
+    didn't make the cut.
+
+    Formula: gap = max(0, xenc_rank - initial_rank) / pool_size
+             rejection = sigmoid(-xenc_score)
+             competition = gap * rejection
+
+    The rejection factor ensures we only suppress entries the cross-encoder
+    actively disliked (xenc_score < 0), not near-winners that just lost out.
+    """
+    if pool_size <= 1:
+        return 0.0
+    gap = max(0, xenc_rank - initial_rank) / pool_size
+    rejection = 1.0 / (1.0 + math.exp(xenc_score))
+    return gap * rejection
+
+
 def apply_suppression_penalty(
     candidates: list[tuple[str, float]],
     suppression_scores: dict[str, float],
@@ -75,7 +103,7 @@ def apply_suppression_penalty(
 
 def update_suppression(
     winner_ids: set[str],
-    competitor_scores: list[tuple[str, int, float]],  # (id, initial_rank, xenc_score)
+    competitor_scores: list[tuple[str, int, float]] | list[tuple[str, int, int, float]],
     current_suppression: dict[str, float],
     pool_size: int,
     config: RIFConfig,
@@ -88,12 +116,21 @@ def update_suppression(
     2. Suppress competitors proportional to competition strength
     3. Reinforce winners (reduce their suppression)
 
+    competitor_scores tuple format:
+    - (id, initial_rank, xenc_score) for default formula
+    - (id, initial_rank, xenc_rank, xenc_score) when config.use_rank_gap=True
+
     Returns updated suppression scores for affected entries.
     """
     updated: dict[str, float] = {}
 
     # Decay + suppress competitors
-    for eid, initial_rank, xenc_score in competitor_scores:
+    for tup in competitor_scores:
+        if config.use_rank_gap:
+            eid, initial_rank, xenc_rank, xenc_score = tup  # type: ignore[misc]
+        else:
+            eid, initial_rank, xenc_score = tup  # type: ignore[misc]
+            xenc_rank = 0
         if eid in winner_ids:
             continue
         old = current_suppression.get(eid, 0.0)
@@ -102,7 +139,12 @@ def update_suppression(
         if elapsed > 0:
             old *= math.exp(-config.decay_lambda * elapsed)
         # Add competition-proportional suppression
-        strength = competition_strength(initial_rank, pool_size, xenc_score)
+        if config.use_rank_gap:
+            strength = competition_strength_gap(
+                initial_rank, xenc_rank, pool_size, xenc_score,
+            )
+        else:
+            strength = competition_strength(initial_rank, pool_size, xenc_score)
         new = min(old + strength * config.suppression_rate, config.max_suppression)
         updated[eid] = new
 

@@ -46,15 +46,21 @@ First learned mechanism to improve retrieval quality on top of hybrid+xenc.
 
 Dataset: LongMemEval S, 500-query full eval, 5000-step burn-in.
 
-| System | NDCG@10 | vs baseline |
-|--------|---------|-------------|
-| Baseline (no RIF) | 0.2960 | — |
-| Global RIF | 0.2993 | +1.1% |
-| **Clustered RIF (30 clusters)** | **0.3132** | **+5.8%** |
+| System | NDCG@10 | Recall@30 |
+|--------|---------|-----------|
+| Baseline (no RIF) | 0.2960 | 0.4103 |
+| Global RIF (original formula) | 0.2993 (+1.1%) | 0.4142 (+0.9%) |
+| Global RIF (gap formula) | 0.3037 (+2.6%) | 0.4250 (+3.6%) |
+| Clustered RIF 30 (original) | 0.3132 (+5.8%) | 0.4381 (+6.8%) |
+| **Clustered RIF 30 + gap formula** | **0.3152 (+6.5%)** | **0.4494 (+9.5%)** |
 
 Config: suppression_rate=0.1, reinforcement_rate=0.05, alpha=0.3, decay_lambda=0.005.
 
-Mechanism: suppress entries that repeatedly make the candidate pool but get rejected by cross-encoder. Clustered RIF maintains per-(entry, query_cluster) suppression so an entry suppressed for one topic stays available for others. Operates at candidate selection stage (before xenc), not scoring stage (where GC failed).
+Mechanism: suppress entries that repeatedly compete but lose to the cross-encoder.
+- **Clustered**: per-(entry, query_cluster) suppression prevents cross-topic interference.
+- **Gap formula**: competition strength = max(0, xenc_rank - initial_rank) / pool × sigmoid(-xenc_score). Targets entries that dropped in rank AND were actively rejected.
+
+Operates at candidate selection stage (before xenc), not scoring stage (where GC failed).
 
 ## How to reproduce
 
