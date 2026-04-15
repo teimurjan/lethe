@@ -270,3 +270,29 @@ Iterated three times on 100-query fast benchmark:
 **Finding**: the fast benchmark's +2.5% was variance from the noisy 100-query baseline. At scale, rescue *degrades* retrieval by -2.6pp. Causes: (1) injection creates noise competitors that mislead RIF's winner/loser identification, (2) fixed injection score creates artificial bias, (3) one-time xenc validation is too weak a persistence signal.
 
 **Conclusion**: clustered+gap (checkpoint 13) remains the retrieval-only best at +6.8% NDCG / +10.3% recall@30. Further retrieval-only mechanisms show diminishing returns. Next lever is the LLM augmentation layer (prospective indexing, write-time query generation) rather than more retrieval refinement.
+
+## Checkpoint 15: Sparse Distributed Memory prototype (paradigm shift, negative)
+
+Stepped outside the embedding + ANN paradigm entirely. Built a from-scratch Sparse Distributed Memory (Kanerva, 1988) — random binary hard locations in 512-bit address space, bipolar per-bit counters, top-N activation, optional iterative cleanup — to test whether distributed binary storage generalizes better than dense NN for partial, vague, noisy queries. Standalone code in `sdm/`, independent of gc-memory.
+
+**Synthetic episodic dataset**: 250 events across 4 families (trips, meetings, purchases, preferences), 5 near-duplicate siblings per family. 1000 queries in 4 noise modes: partial (drop attributes), paraphrase (swap synonyms), fragment (keep 1-2 cues), noisy (add unrelated tokens). Baseline: FAISS IndexFlatIP on the same MiniLM encoder.
+
+**Sanity check on exact queries** (verifies implementation correctness): SDM 206/250 (82%), SDM+cleanup 65/250 (26%), FAISS 233/250 (93%).
+
+**Full eval, precision@1**
+
+| Mode | SDM | SDM+cleanup | FAISS |
+|------|-----|-------------|-------|
+| partial | 0.132 | 0.064 | 0.344 |
+| paraphrase | 0.476 | 0.176 | 0.900 |
+| fragment | 0.088 | 0.036 | 0.348 |
+| noisy | 0.204 | 0.060 | 0.892 |
+| **overall** | **0.225** | **0.084** | **0.621** |
+
+**Findings**:
+1. FAISS wins precision outright (0.62 vs 0.23). Dense cosine geometry beats random binary projection on this dataset.
+2. SDM's gap to FAISS is *smallest on partial/fragment* (content missing), *largest on noisy/paraphrase* (content preserved). Binary quantization throws away signal exactly where dense cosine would exploit it — SDM's weakness shows up when queries carry information, not when they don't.
+3. SDM has *lower sibling confusion* on partial/fragment queries. When SDM fails, it tends to miss entirely rather than swap in a near-duplicate — a qualitatively different failure mode. Potentially useful if downstream logic (e.g., an LLM) should ask for clarification rather than confabulate.
+4. *Iterative cleanup HURTS* on every noise mode (≈3× precision drop). Cleanup is an attractor dynamic that drifts toward sibling prototypes — useful for prototype extraction, destructive for distinct-episode recall.
+
+**Conclusion**: SDM does not improve episodic recall over a simple FAISS baseline for this dataset. The paradigm shift didn't yield a win. Closes the search for alternative retrieval mechanisms; confirms that clustered+gap RIF on top of hybrid+xenc is the state of the art from this research thread. Next direction remains the LLM augmentation layer.

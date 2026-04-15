@@ -73,6 +73,6 @@ The 0.3680 is from BM25+vector+cross-encoder reranking (standard IR). The GC mec
 
 ## research status
 
-14 checkpoints. Checkpoints 1-10 (GC mechanisms): all failed. Checkpoint 11 (global RIF): +1.1%. Checkpoint 12 (clustered RIF): +5.8%. Checkpoint 13 (clustered + rank-gap): **+6.5% NDCG, +9.5% recall@30** — best. Checkpoint 14 (exploration + rescue list): validated negative (-2.6pp at 500-query scale; fast benchmark was variance). Retrieval-only ceiling reached — next lever is LLM augmentation layer.
+15 checkpoints. Checkpoints 1-10 (GC mechanisms): all failed. Checkpoint 11 (global RIF): +1.1%. Checkpoint 12 (clustered RIF): +5.8%. Checkpoint 13 (clustered + rank-gap): **+6.5% NDCG, +9.5% recall@30** — best. Checkpoint 14 (exploration + rescue list): negative at full scale. Checkpoint 15 (SDM research prototype in `sdm/`): negative — FAISS beats binary SDM on synthetic episodic data, though SDM has a different error mode (lower sibling confusion on partial queries). Retrieval-only ceiling reached — next lever is LLM augmentation layer.
 
 Full research journey: [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md)
