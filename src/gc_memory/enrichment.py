@@ -204,7 +204,7 @@ async def _enrich_single(
 async def enrich_dataset(
     entries: list[tuple[str, str]],  # (entry_id, memory_text)
     output_path: Path,
-    model: str = "claude-sonnet-4-6",
+    model: str = "claude-haiku-4-5",
     concurrency: int = 20,
     progress_every: int = 50,
 ) -> EnrichmentStats:

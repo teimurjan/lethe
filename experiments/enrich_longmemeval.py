@@ -56,8 +56,8 @@ def select_answer_relevant_entries(
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", default="claude-sonnet-4-6",
-                    help="Anthropic model (default: claude-sonnet-4-6)")
+    ap.add_argument("--model", default="claude-haiku-4-5",
+                    help="Anthropic model (default: claude-haiku-4-5 — matches memsearch)")
     ap.add_argument("--max", type=int, default=None,
                     help="Limit number of entries to enrich (for smoke tests)")
     ap.add_argument("--concurrency", type=int, default=20,
