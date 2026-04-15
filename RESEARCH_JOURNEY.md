@@ -296,3 +296,76 @@ Stepped outside the embedding + ANN paradigm entirely. Built a from-scratch Spar
 4. *Iterative cleanup HURTS* on every noise mode (≈3× precision drop). Cleanup is an attractor dynamic that drifts toward sibling prototypes — useful for prototype extraction, destructive for distinct-episode recall.
 
 **Conclusion**: SDM does not improve episodic recall over a simple FAISS baseline for this dataset. The paradigm shift didn't yield a win. Closes the search for alternative retrieval mechanisms; confirms that clustered+gap RIF on top of hybrid+xenc is the state of the art from this research thread. Next direction remains the LLM augmentation layer.
+
+## Checkpoint 16: Extended behavior metrics for checkpoint 13
+
+Before adding more mechanisms, decomposed checkpoint 13's +6.8% NDCG gain into behavior-level metrics on the full 500-query eval. Five axes:
+
+- **exact_episode** — top-1 ∈ qrels
+- **sibling_confusion** — top-1 is from answer-session but not in qrels (same topic, wrong turn)
+- **wrong_family** — top-1 is from a session with no relevant turns (unrelated topic)
+- **stale_fact** (knowledge-update only) — proxy for pulling an older version
+- **abstain@T** — fraction where top-1 xenc score < T (would trigger abstention)
+
+**Results (overall, 500 queries, 5000-step burn-in):**
+
+| Metric | baseline | RIF | Δ |
+|--------|----------|-----|---|
+| exact_episode | 0.208 | 0.222 | +0.014 |
+| ndcg@10 | 0.293 | 0.316 | +0.023 |
+| **wrong_family** | **0.688** | **0.672** | **−0.016** |
+| sibling_confusion | 0.104 | 0.106 | +0.002 |
+| stale_fact | 0.205 | 0.205 | +0.000 |
+| abstain@2 | 0.324 | 0.310 | −0.014 |
+
+**Findings**:
+1. RIF's NDCG gain comes **primarily from reducing wrong-family retrievals** (−1.6pp). Candidate pool stays more on-topic.
+2. **Sibling confusion unchanged** (+0.2pp). RIF doesn't help distinguish the right turn within the right session — all turns in a session look similar to the cross-encoder, and RIF's per-cluster signal doesn't operate at that granularity.
+3. **Stale-fact rate identical** (0.205). RIF has no concept of time; it treats all entries as atemporal.
+4. **Abstention nearly unchanged**. Cross-encoder confidence at rank 1 is stable.
+5. Biggest per-type gains on temporal-reasoning (+2.3pp exact_episode, −3.0pp wrong_family) and single-session-user (+4.3pp NDCG).
+
+**Takeaway**: checkpoint 13's story is "cross-topic noise pruning," not "general retrieval improvement." The remaining failure modes (sibling_confusion, stale_fact) need mechanisms RIF doesn't have.
+
+## Checkpoint 17: LLM enrichment layer on top of checkpoint 13
+
+Shifted from pure retrieval-side work to a write-time LLM augmentation layer. For each memory, call `claude-haiku-4-5` to produce: a gist, 3 anticipated queries, entities, and temporal markers. Index all of these alongside the original text in BM25/vector; cross-encoder still scores against original text (what a user would see).
+
+**Three-arm benchmark**: baseline (no RIF) / clustered+gap RIF (checkpoint 13) / RIF + enrichment. Enriched 975 entries (first 1000 of the "answer-relevant sessions" pool), covering 15% of queries (75/500 have at least one enriched qrels entry).
+
+**Overall (500 queries — diluted by 85% uncovered):**
+
+| Metric | baseline | RIF | RIF+enriched | Δ(enr−RIF) |
+|--------|----------|-----|--------------|-----------|
+| exact_episode | 0.208 | 0.218 | 0.220 | +0.002 |
+| ndcg@10 | 0.293 | 0.312 | 0.324 | +0.012 |
+| wrong_family | 0.688 | 0.676 | 0.674 | −0.002 |
+
+**Covered bucket (75 queries — where enrichment has something to bite on):**
+
+| Metric | baseline | RIF | RIF+enriched | Δ(enr−RIF) |
+|--------|----------|-----|--------------|-----------|
+| exact_episode | 0.267 | 0.280 | **0.333** | **+0.053 (+19% rel)** |
+| ndcg@10 | 0.350 | 0.390 | **0.473** | **+0.083 (+21% rel)** |
+| wrong_family | 0.720 | 0.707 | **0.653** | **−0.053** |
+| sibling_confusion | 0.013 | 0.013 | 0.013 | 0 |
+| abstain@4 | 0.280 | 0.253 | 0.227 | −0.027 (more confident) |
+
+**Findings**:
+1. **Enrichment works where applied.** On the 75 covered queries, +8.3pp NDCG and +5.3pp exact_episode on top of checkpoint 13 — **3.6× larger than RIF's own contribution**. Biggest single-lever improvement across the entire journey.
+2. **Driven by reduced wrong-family retrieval** (−5.3pp on covered). Anticipated_queries shrinks the vocabulary-mismatch problem — correct sessions enter the candidate pool more reliably.
+3. **Sibling confusion still doesn't move.** When all in-session turns get enriched, they all get richer simultaneously; within-session discrimination is unchanged. The cross-encoder is already doing that work.
+4. **Stale-fact didn't get a fair test.** Knowledge-update qrels fell outside the 1000-entry subset, so temporal_markers weren't exercised. Coverage-dependent; needs targeted re-enrichment to validate.
+5. **Abstention rate drops** on covered queries (0.253 → 0.227 at T=4) — the system is more confident when the answer actually arrives at rank 1.
+
+**Cost**: $1.6 for 1000 entries on Haiku with prompt caching off (system prompt too short to cache). Projected to ~$16 for the full 10,237 answer-relevant entries.
+
+**Conclusion**: the LLM layer is where the biggest retrieval-quality gains now live. Attacks failure modes (cross-topic vocabulary mismatch) that retrieval-only mechanisms don't reach, while leaving within-session and temporal failure modes untouched. Scaling to full coverage expected to produce overall numbers approaching the covered-bucket numbers.
+
+## Benchmark methodology note (added 2026-04-16)
+
+All numbers in this journey are measured on **the full 199,509-turn LongMemEval S corpus** using **NDCG@10 over turn-level retrieval**. This is a needle-in-haystack setup: each query must find ~1-3 relevant turns among 200k candidates.
+
+Other memory-tool benchmarks commonly report numbers on **per-query fresh DBs** (≈50 sessions per question) with **session-level recall@5**. That task is ~2000× easier than ours (10% random baseline vs 0.005%) and additionally leaks ground truth via the `has_answer` field at indexing time. Published numbers in the 95-99% range are state-of-the-art on that easier methodology; they are not directly comparable to the numbers here.
+
+A head-to-head comparison on a shared methodology (either run ours under their setup, or run theirs under ours) is a separate, honest experiment that hasn't been done yet.

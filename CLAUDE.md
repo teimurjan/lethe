@@ -73,6 +73,6 @@ The 0.3680 is from BM25+vector+cross-encoder reranking (standard IR). The GC mec
 
 ## research status
 
-15 checkpoints. Checkpoints 1-10 (GC mechanisms): all failed. Checkpoint 11 (global RIF): +1.1%. Checkpoint 12 (clustered RIF): +5.8%. Checkpoint 13 (clustered + rank-gap): **+6.5% NDCG, +9.5% recall@30** — best. Checkpoint 14 (exploration + rescue list): negative at full scale. Checkpoint 15 (SDM research prototype in `sdm/`): negative — FAISS beats binary SDM on synthetic episodic data, though SDM has a different error mode (lower sibling confusion on partial queries). Retrieval-only ceiling reached — next lever is LLM augmentation layer.
+17 checkpoints. Checkpoints 1-10 (GC mechanisms): all failed. Checkpoint 11 (global RIF): +1.1%. Checkpoint 12 (clustered RIF): +5.8%. Checkpoint 13 (clustered + rank-gap): +6.5% NDCG, +9.5% recall@30 — retrieval-only best. Checkpoint 14 (exploration + rescue list): negative at full scale. Checkpoint 15 (SDM research prototype in `sdm/`): negative. Checkpoint 16 (extended metrics for checkpoint 13): RIF's gain is primarily from reducing wrong_family (−1.6pp); sibling_confusion and stale_fact unchanged. Checkpoint 17 (LLM enrichment layer, Haiku write-time gist + anticipated queries + entities + temporal markers): **+8.3pp NDCG on covered queries (+21% rel over RIF), largest single-lever gain in the journey**. Overall diluted to +1.2pp by partial coverage (15% of queries). Full corpus enrichment expected ~$16.
 
 Full research journey: [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md)

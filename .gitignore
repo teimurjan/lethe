@@ -12,3 +12,4 @@ dist/
 writeup/
 .memsearch/
 .claude/
+.env
