@@ -173,6 +173,17 @@ def main() -> None:
     def rel_sessions(qid: str) -> set[str]:
         return {session_of(eid) for eid in qrels.get(qid, {}).keys()}
 
+    # Queries whose qrels have at least one enriched entry — where the
+    # enrichment mechanism actually has something to bite on.
+    enriched_ids_set = set(enriched.keys())
+    covered_query_ids = {
+        qid for qid, relmap in qrels.items()
+        if set(relmap.keys()) & enriched_ids_set
+    }
+    print(f"Coverage: {len(covered_query_ids)}/{len(qrels)} queries have at least "
+          f"one enriched qrels entry.")
+    print()
+
     # --- Phase 1: burn-in RIF suppression (separately for each arm that uses RIF) ---
     # The enriched arm has a different candidate pool, so it needs its own burn-in state.
     rif_state_orig = ClusteredSuppressionState()
@@ -301,18 +312,26 @@ def main() -> None:
             wfam = 1.0 if top_sess and top_sess not in rel_sess else 0.0
 
             bucket = arms[arm_name]
-            for b in (bucket["overall"], bucket[qtype]):
+            is_covered = qi in covered_query_ids
+            target_buckets = [bucket["overall"], bucket[qtype]]
+            if is_covered:
+                target_buckets.append(bucket["covered"])
+                target_buckets.append(bucket[f"covered::{qtype}"])
+            else:
+                target_buckets.append(bucket["uncovered"])
+
+            for b in target_buckets:
                 b["exact_episode"].append(p1)
                 b["ndcg@10"].append(ndcg)
                 b["sibling_confusion"].append(sib)
                 b["wrong_family"].append(wfam)
             if qtype == "knowledge-update":
                 stale = 1.0 if (top_id not in rel_ids and top_sess in rel_sess) else 0.0
-                for b in (bucket["overall"], bucket[qtype]):
+                for b in target_buckets:
                     b["stale_fact"].append(stale)
             for threshold in ABSTAIN_THRESHOLDS:
                 abstain = 1.0 if top_score < threshold else 0.0
-                for b in (bucket["overall"], bucket[qtype]):
+                for b in target_buckets:
                     b[f"abstain@{threshold}"].append(abstain)
 
     # --- Report ---
@@ -331,9 +350,11 @@ def main() -> None:
     print("=" * 90)
     print(f"{'bucket':<26} | {'metric':<20} | {'base':>7} | {'RIF':>7} | {'+enr':>7}")
     print("-" * 90)
-    buckets_order = ["overall"] + sorted(
-        k for k in arms["baseline"].keys() if k != "overall"
-    )
+    # Order: overall → covered/uncovered → per-qtype → covered::qtype
+    all_buckets = list(arms["baseline"].keys())
+    priority = ["overall", "covered", "uncovered"]
+    others = sorted(b for b in all_buckets if b not in priority)
+    buckets_order = [b for b in priority if b in all_buckets] + others
     for bucket in buckets_order:
         for m in metric_order:
             b = mean(arms["baseline"][bucket].get(m, []))
