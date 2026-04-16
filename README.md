@@ -140,9 +140,12 @@ src/gc_memory/
 ├── entry.py           # MemoryEntry dataclass + Tier enum
 └── config.py          # Hyperparameters
 
-benchmarks/            # Benchmark scripts + result markdowns
+benchmarks/
+├── run_*.py           # Benchmark scripts (one per checkpoint)
+└── results/           # Raw per-run output markdowns (historical)
+
 experiments/           # Data prep, enrichment dataset builder
-research/              # Archived GC mutation / adapter / graph / SDM research
+research/              # Archived GC mutation / adapter / graph research
 sdm/                   # Sparse Distributed Memory prototype (checkpoint 15)
 tests/                 # Unit tests
 ```
