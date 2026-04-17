@@ -142,6 +142,12 @@ class MemoryDB:
         )
         return _rows_as_dicts(cur)
 
+    def get_content(self, entry_id: str) -> str | None:
+        row = self._conn.execute(
+            "SELECT content FROM entries WHERE id=?", [entry_id]
+        ).fetchone()
+        return str(row[0]) if row else None
+
     def delete_entry(self, entry_id: str) -> None:
         self._conn.execute("DELETE FROM entries WHERE id=?", [entry_id])
 

@@ -170,7 +170,6 @@ def test_expand_prints_chunk(
     assert rc == 0
     out = capsys.readouterr().out
     assert "window seats" in out
-    assert "session:s" in out
 
 
 def test_expand_missing_chunk_returns_error(

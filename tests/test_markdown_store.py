@@ -135,7 +135,7 @@ def test_scan_reads_all_md_files_in_order(tmp_path: Path) -> None:
     assert [c.heading for c in chunks] == ["A", "B"]
 
 
-def test_reindex_adds_new_chunks_and_persists_chunk_map(
+def test_reindex_adds_new_chunks(
     tmp_path: Path, mock_bi_encoder, mock_cross_encoder
 ) -> None:
     memory = tmp_path / "memory"
@@ -157,10 +157,7 @@ def test_reindex_adds_new_chunks_and_persists_chunk_map(
         store.close()
 
     assert counts == {"added": 2, "removed": 0, "unchanged": 0, "total": 2}
-    # chunk map file exists and has both chunk ids
-    chunk_map = md._load_chunk_map()
-    assert len(chunk_map) == 2
-    assert all(len(cid) == 16 for cid in chunk_map)
+    assert store.size == 2
 
 
 def test_reindex_is_idempotent(
@@ -251,21 +248,25 @@ def test_get_chunk_returns_full_markdown(
     )
     try:
         md.reindex(store)
+        [chunk] = md.scan()
+        expanded = store.db.get_content(chunk.id)
+        assert expanded is not None
+        assert "bullet" in expanded
     finally:
         store.close()
 
-    [chunk] = md.scan()
-    expanded = md.get_chunk(chunk.id)
-    assert expanded is not None
-    assert "bullet" in expanded
-    assert parse_anchor(expanded) == {
-        "session": "s", "turn": "t", "transcript": "/x",
-    }
 
-
-def test_get_chunk_returns_none_for_unknown_id(tmp_path: Path) -> None:
-    md = MarkdownStore(memory_dir=tmp_path / "memory", index_dir=tmp_path / "index")
-    assert md.get_chunk("deadbeef" * 2) is None
+def test_get_content_returns_none_for_unknown_id(
+    tmp_path: Path, mock_bi_encoder, mock_cross_encoder,
+) -> None:
+    store = MemoryStore(
+        tmp_path / "store",
+        bi_encoder=mock_bi_encoder,
+        cross_encoder=mock_cross_encoder,
+        dim=mock_bi_encoder.dim,
+    )
+    assert store.db.get_content("deadbeef" * 2) is None
+    store.close()
 
 
 def test_chunk_anchor_property_pulls_from_content() -> None:

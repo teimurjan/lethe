@@ -416,10 +416,15 @@ def _snippet(content: str, width: int = 160) -> str:
 
 def cmd_expand(args: argparse.Namespace) -> int:
     paths = resolve_paths(args.root)
-    from lethe.markdown_store import MarkdownStore
+    db_path = paths.index / "lethe.duckdb"
+    if not db_path.exists():
+        print(f"chunk {args.chunk_id!r} not found", file=sys.stderr)
+        return 1
+    from lethe.db import MemoryDB
 
-    md = MarkdownStore(memory_dir=paths.memory, index_dir=paths.index)
-    content = md.get_chunk(args.chunk_id)
+    db = MemoryDB(db_path)
+    content = db.get_content(args.chunk_id)
+    db.close()
     if content is None:
         print(f"chunk {args.chunk_id!r} not found", file=sys.stderr)
         return 1

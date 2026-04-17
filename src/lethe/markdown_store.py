@@ -16,7 +16,6 @@ on a directory of markdown files and a :class:`~lethe.memory_store.MemoryStore`.
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -165,14 +164,11 @@ class MarkdownStore:
     so ``lethe expand`` can return the full section.
     """
 
-    CHUNK_MAP_FILENAME = "chunk_map.json"
-
     def __init__(self, memory_dir: Path, index_dir: Path) -> None:
         self.memory_dir = Path(memory_dir)
         self.index_dir = Path(index_dir)
         self.memory_dir.mkdir(parents=True, exist_ok=True)
         self.index_dir.mkdir(parents=True, exist_ok=True)
-        self._chunk_map_path = self.index_dir / self.CHUNK_MAP_FILENAME
 
     # ---- Scanning ----------------------------------------------------------
 
@@ -190,26 +186,6 @@ class MarkdownStore:
             out.extend(split_into_chunks(text, f))
         return out
 
-    # ---- Chunk map persistence --------------------------------------------
-
-    def _load_chunk_map(self) -> dict[str, str]:
-        if not self._chunk_map_path.exists():
-            return {}
-        try:
-            data = json.loads(self._chunk_map_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return {str(k): str(v) for k, v in data.items() if isinstance(v, str)}
-
-    def _save_chunk_map(self, chunk_map: dict[str, str]) -> None:
-        self._chunk_map_path.write_text(
-            json.dumps(chunk_map, ensure_ascii=False, indent=0),
-            encoding="utf-8",
-        )
-
-    def get_chunk(self, chunk_id: str) -> str | None:
-        return self._load_chunk_map().get(chunk_id)
-
     # ---- Reindex -----------------------------------------------------------
 
     def reindex(self, store: MemoryStore) -> dict[str, int]:
@@ -221,7 +197,6 @@ class MarkdownStore:
         """
         chunks = self.scan()
         current_ids = {c.id for c in chunks}
-        previous = self._load_chunk_map()
 
         added = 0
         unchanged = 0
@@ -239,10 +214,9 @@ class MarkdownStore:
             if inserted is not None:
                 added += 1
             else:
-                # Dedup suppressed the insert (exact hash collision or near-dup).
                 unchanged += 1
 
-        for old_id in set(previous) - current_ids:
+        for old_id in set(store.entries) - current_ids:
             if old_id in store.entries:
                 store.db.delete_entry(old_id)
                 store.entries.pop(old_id, None)
@@ -251,9 +225,6 @@ class MarkdownStore:
 
         if removed:
             store._rebuild_index()
-
-        chunk_map = {c.id: c.content for c in chunks}
-        self._save_chunk_map(chunk_map)
 
         return {
             "added": added,
