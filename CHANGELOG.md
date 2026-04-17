@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.1](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.2.0...lethe-memory-v0.2.1) (2026-04-17)
+
+
+### Documentation
+
+* Add demo gif ([0ad0b8d](https://github.com/teimurjan/lethe/commit/0ad0b8d24602af3eb5cc5774bdb0d2fbd0cdb02f))
+* Remove extra whats next header ([dbd33e6](https://github.com/teimurjan/lethe/commit/dbd33e699cf63bbb0680b228571545a283e3fe3a))
+
 ## [0.2.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.1.0...lethe-memory-v0.2.0) (2026-04-17)
 
 
