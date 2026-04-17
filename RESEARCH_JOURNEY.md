@@ -326,6 +326,21 @@ A head-to-head comparison on a shared methodology (either side) is a separate ex
 
 ## What's next
 
+### Implementation note: query-based vs entry-based clustering for production RIF
+
+When wiring clustered RIF into `MemoryStore.retrieve()` (shipping checkpoint 13 to production), we tested two clustering strategies:
+
+- **Entry-based**: cluster the corpus embeddings (199k turns). Available from the first query. Gave **+1.8% NDCG** — 3.6× less than the benchmark's +6.5%.
+- **Query-based**: cluster the query embeddings (matching the benchmark protocol). Requires collecting queries before building centroids. Gave **+9.5% NDCG** (via MemoryStore, A/B validated against raw primitives at N=1000).
+
+Root cause: cue-dependent suppression scopes forgetting to *query context* ("travel-like queries" vs "food-like queries"). Entry-based clusters group *content topics*, which is a weak proxy for user intent — a query about PostgreSQL pool config might land in a cluster of PostgreSQL install guides rather than a cluster of pooling-related queries.
+
+Production implementation: `MemoryStore` collects query embeddings during `retrieve()`, builds centroids via k-means once `10 × n_clusters` queries have been seen, then freezes. Centroids persist to DuckDB across sessions.
+
+---
+
+## What's next
+
 Three open directions, in rough priority:
 
 1. **Scale enrichment to full answer-relevant coverage** (~$16, ~1h enrichment + 3.5h benchmark). Confirms covered-bucket numbers on the full eval. Gets us the clean +8pp NDCG story.

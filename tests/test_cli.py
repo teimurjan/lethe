@@ -291,3 +291,101 @@ def test_load_config_with_malformed_toml_falls_back_to_defaults(
     cfg_path.write_text("this = is = not = toml", encoding="utf-8")
     cfg = cli.load_config(cli.resolve_paths())
     assert cfg == cli.DEFAULT_CONFIG
+
+
+# ---------- Registry + global search ----------
+
+def test_projects_add_list_remove_roundtrip(
+    isolated_project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # Register current project via explicit `projects add`.
+    rc = cli.main(["projects", "add"])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = cli.main(["projects", "list", "--json-output"])
+    assert rc == 0
+    listed = json.loads(capsys.readouterr().out)
+    assert len(listed) == 1
+    assert listed[0]["root"] == str(isolated_project)
+
+    rc = cli.main(["projects", "remove", str(isolated_project)])
+    assert rc == 0
+    capsys.readouterr()
+
+    rc = cli.main(["projects", "list", "--json-output"])
+    assert rc == 0
+    assert json.loads(capsys.readouterr().out) == []
+
+
+def test_projects_prune_drops_missing_roots(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from lethe import _registry
+
+    # Seed two entries: one real, one pointing at a vanished dir.
+    real = tmp_path / "real"
+    real.mkdir()
+    gone = tmp_path / "gone"
+    gone.mkdir()
+    _registry.register(real)
+    _registry.register(gone)
+    gone.rmdir()
+
+    rc = cli.main(["projects", "prune"])
+    assert rc == 0
+    capsys.readouterr()
+    entries = _registry.load()
+    roots = [str(e.root) for e in entries]
+    assert str(real.resolve()) in roots
+    assert str(gone.resolve()) not in roots
+
+
+def test_index_auto_registers_by_default(
+    isolated_project: Path, patched_encoders
+) -> None:
+    from lethe import _registry
+
+    md = isolated_project / ".lethe" / "memory" / "today.md"
+    md.write_text("# today\n\n## Session 10:00\n- a real bullet\n", encoding="utf-8")
+
+    rc = cli.main(["index"])
+    assert rc == 0
+    entries = _registry.load()
+    assert any(e.root == isolated_project.resolve() for e in entries)
+
+
+def test_index_no_register_opts_out(
+    isolated_project: Path, patched_encoders
+) -> None:
+    from lethe import _registry
+
+    md = isolated_project / ".lethe" / "memory" / "today.md"
+    md.write_text("# today\n\n## Session 10:00\n- a bullet\n", encoding="utf-8")
+
+    rc = cli.main(["index", "--no-register"])
+    assert rc == 0
+    assert _registry.load() == []
+
+
+def test_search_all_with_empty_registry_exits_nonzero(
+    isolated_project: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    rc = cli.main(["search", "anything", "--all"])
+    assert rc == 1
+    err = capsys.readouterr().err
+    assert "no projects registered" in err
+
+
+def test_lock_allows_sequential_cli_in_same_project(
+    isolated_project: Path, patched_encoders
+) -> None:
+    """Serialized CLI calls under the same lockfile don't raise. This is a
+    smoke test for the fcntl-flock wrapper — real concurrency needs a
+    subprocess harness."""
+    md = isolated_project / ".lethe" / "memory" / "today.md"
+    md.write_text("# today\n\n## Session 10:00\n- bullet\n", encoding="utf-8")
+
+    assert cli.main(["index"]) == 0
+    assert cli.main(["status"]) == 0
+    assert cli.main(["reset", "--yes"]) == 0

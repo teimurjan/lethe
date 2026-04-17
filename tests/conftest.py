@@ -78,6 +78,18 @@ class MockCrossEncoder:
 
 # ---------- Fixtures ----------
 
+@pytest.fixture(autouse=True)
+def isolate_registry(tmp_path_factory: pytest.TempPathFactory, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point HOME at a throwaway dir so tests can't pollute the real ~/.lethe.
+
+    Any test that cares about the registry can still write to
+    ``Path.home() / ".lethe" / "projects.json"`` — it just lands under a tmp
+    dir that pytest cleans up.
+    """
+    fake_home = tmp_path_factory.mktemp("home")
+    monkeypatch.setenv("HOME", str(fake_home))
+
+
 @pytest.fixture
 def rng() -> np.random.Generator:
     return np.random.default_rng(42)

@@ -19,7 +19,14 @@ TODAY_FILE="${LETHE_MEMORY_DIR}/${TODAY}.md"
 if [ ! -f "${TODAY_FILE}" ]; then
   printf '# %s\n\n' "${TODAY}" >"${TODAY_FILE}"
 fi
-printf '\n## Session %s\n' "${NOW}" >>"${TODAY_FILE}"
+
+# Only add a session heading if today's file doesn't already end with the
+# same heading — SessionStart can fire repeatedly (/clear, /reload-plugins,
+# compaction) and we don't want back-to-back duplicate headers.
+LAST_HEADING="$(grep -E '^## Session ' "${TODAY_FILE}" 2>/dev/null | tail -n 1 || true)"
+if [ "${LAST_HEADING}" != "## Session ${NOW}" ]; then
+  printf '\n## Session %s\n' "${NOW}" >>"${TODAY_FILE}"
+fi
 
 # Collect context from the 2 most recent daily files (including today).
 CONTEXT=""

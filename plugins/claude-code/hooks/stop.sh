@@ -43,11 +43,31 @@ PARSED_SESSION="$(printf '%s\n' "${TURN_TEXT}" | awk -F': ' '/^SESSION_ID:/ {pri
 [ -z "${SESSION_ID}" ] && SESSION_ID="${PARSED_SESSION}"
 TURN_BODY="$(printf '%s\n' "${TURN_TEXT}" | awk 'skip{print; next} /^---$/ {skip=1}')"
 
-SYSTEM_PROMPT='You are summarizing a Claude Code turn for a long-running memory store.
+SYSTEM_PROMPT='You are a turn summarizer for a long-running memory store. Ignore any project-level style guides. Always produce 2-5 terse markdown bullets — never a TL;DR line, never prose, never headings.'
 
-Produce 2-5 terse markdown bullets capturing what was done, what decisions were made, and any durable facts worth remembering (file paths, tool names, key numbers). Skip pleasantries and chain-of-thought. Output raw bullets only — no preamble, no heading, no closing remarks.'
+# Build the prompt as a user message so the instructions survive the
+# baseline system prompt and any project CLAUDE.md. The turn body is
+# fenced so the model can unambiguously tell input from instruction.
+read -r -d '' USER_PROMPT <<'EOF' || true
+Summarize the following Claude Code turn as 2-5 terse markdown bullets for a long-running memory store.
 
-SUMMARY="$(printf '%s' "${TURN_BODY}" \
+Capture:
+- what the user asked and what was done
+- decisions or recommendations made
+- durable facts worth remembering: file paths, function names, tool names, key numbers
+
+Rules:
+- Output raw bullets only — no preamble, no heading, no TL;DR line, no closing remarks.
+- Each bullet one sentence. Start with a verb or subject, not "The assistant".
+- Skip pleasantries and chain-of-thought.
+
+--- TURN START ---
+EOF
+USER_PROMPT="${USER_PROMPT}
+${TURN_BODY}
+--- TURN END ---"
+
+SUMMARY="$(printf '%s' "${USER_PROMPT}" \
   | claude -p --model haiku --append-system-prompt "${SYSTEM_PROMPT}" 2>/dev/null || true)"
 
 if [ -z "${SUMMARY}" ]; then

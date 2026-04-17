@@ -32,7 +32,7 @@ try:  # 3.11+
 except ModuleNotFoundError:  # pragma: no cover — Python <3.11 unsupported
     tomllib = None  # type: ignore[assignment]
 
-__version__ = "0.1.0"
+from lethe import __version__
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "bi_encoder": "all-MiniLM-L6-v2",
@@ -144,12 +144,43 @@ def _coerce_scalar(raw: str) -> Any:
 # Store construction
 # ---------------------------------------------------------------------------
 
-def _load_encoders(cfg: dict[str, Any]):
-    """Import sentence-transformers lazily so `lethe --version` stays fast."""
-    from sentence_transformers import CrossEncoder, SentenceTransformer  # type: ignore[import-not-found]
+def _silence_transformer_noise() -> None:
+    """Suppress sentence-transformers / huggingface stdout+stderr chatter.
 
-    bi = SentenceTransformer(cfg["bi_encoder"])
-    xenc = CrossEncoder(cfg["cross_encoder"])
+    The CLI is invoked from hooks and pipes, so the `BertModel LOAD REPORT`
+    banner, tqdm weight-loading bars, and FutureWarnings are pure noise.
+    Must run before the first transformers/sentence-transformers import.
+    """
+    import logging
+    import warnings
+
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
+    os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
+    os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+    for name in ("sentence_transformers", "transformers", "huggingface_hub"):
+        logging.getLogger(name).setLevel(logging.ERROR)
+    warnings.filterwarnings("ignore", category=FutureWarning)
+    warnings.filterwarnings("ignore", category=UserWarning, module="torch")
+    warnings.filterwarnings("ignore", category=UserWarning, module="huggingface_hub.*")
+
+
+def _load_encoders(cfg: dict[str, Any]):
+    """Load ONNX-backed encoders via fastembed.
+
+    This is the interactive code path (CLI + Claude Code hooks). The torch +
+    sentence-transformers path lives in benchmark scripts and is reached by
+    constructing MemoryStore directly.
+    """
+    _silence_transformer_noise()
+    from lethe.encoders import (
+        OnnxBiEncoder,
+        OnnxCrossEncoder,
+        resolve_bi_encoder_name,
+        resolve_cross_encoder_name,
+    )
+
+    bi = OnnxBiEncoder(resolve_bi_encoder_name(cfg["bi_encoder"]))
+    xenc = OnnxCrossEncoder(resolve_cross_encoder_name(cfg["cross_encoder"]))
     return bi, xenc
 
 
@@ -182,7 +213,8 @@ def _open_store(paths: Paths, cfg: dict[str, Any], *, need_encoders: bool):
     bi = xenc = None
     if need_encoders:
         bi, xenc = _load_encoders(cfg)
-        dim = bi.get_sentence_embedding_dimension()
+        dim_fn = getattr(bi, "get_embedding_dimension", None) or bi.get_sentence_embedding_dimension
+        dim = dim_fn()
     else:
         dim = _infer_stored_dim(paths, default=384)
 
@@ -197,6 +229,34 @@ def _open_store(paths: Paths, cfg: dict[str, Any], *, need_encoders: bool):
         dim=dim,
         rif_config=rif,
     )
+
+
+# ---------------------------------------------------------------------------
+# Auto-registration
+# ---------------------------------------------------------------------------
+
+def _maybe_auto_register(paths: "Paths", cfg: dict[str, Any], *, opted_out: bool) -> None:
+    """Append the project root to ``~/.lethe/projects.json`` if enabled.
+
+    Three layers of opt-out, checked in order of specificity:
+      1. per-invocation ``--no-register`` flag (``opted_out``)
+      2. per-project ``auto_register = false`` in ``.lethe/config.toml``
+      3. global env var ``LETHE_DISABLE_GLOBAL_REGISTRY=1``
+    """
+    if opted_out:
+        return
+    if not bool(cfg.get("auto_register", True)):
+        return
+    from lethe import _registry
+
+    if _registry.is_disabled():
+        return
+    try:
+        _registry.register(paths.root)
+    except OSError:
+        # Registry is a convenience, not a correctness requirement — don't
+        # fail `lethe index` because ~/.lethe isn't writable.
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -222,6 +282,8 @@ def cmd_index(args: argparse.Namespace) -> int:
     finally:
         store.close()
 
+    _maybe_auto_register(paths, cfg, opted_out=bool(args.no_register))
+
     if args.json_output:
         print(json.dumps(counts))
     else:
@@ -233,6 +295,9 @@ def cmd_index(args: argparse.Namespace) -> int:
 
 
 def cmd_search(args: argparse.Namespace) -> int:
+    if getattr(args, "all", False) or getattr(args, "projects", None):
+        return _cmd_search_union(args)
+
     paths = resolve_paths(args.root)
     cfg = load_config(paths)
 
@@ -255,9 +320,98 @@ def cmd_search(args: argparse.Namespace) -> int:
         return 0
 
     for eid, content, score in results:
-        snippet = content.strip().splitlines()[0][:160]
-        print(f"[{score:+.2f}] {eid}  {snippet}")
+        print(f"[{score:+.2f}] {eid}  {_snippet(content)}")
     return 0
+
+
+def _cmd_search_union(args: argparse.Namespace) -> int:
+    from lethe import _registry
+    from lethe.union_store import UnionStore
+
+    all_entries = _registry.load()
+    if args.projects:
+        wanted = {name.strip() for name in args.projects.split(",") if name.strip()}
+        roots = [
+            e.root for e in all_entries
+            if e.slug in wanted or str(e.root) in wanted
+        ]
+        missing = wanted - {e.slug for e in all_entries} - {str(e.root) for e in all_entries}
+        for name in missing:
+            print(f"[lethe] unknown project: {name}", file=sys.stderr)
+    else:
+        roots = [e.root for e in all_entries]
+
+    if not roots:
+        print(
+            "no projects registered — run `lethe index` in each project, "
+            "or pass --projects <slug,slug>",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Use whichever project's config we can find for encoder names; the CLI
+    # default config ships with the same encoder pair everywhere.
+    cfg_source = next((r for r in roots if (r / ".lethe" / "config.toml").exists()), roots[0])
+    cfg = load_config(resolve_paths(cfg_source))
+
+    _silence_transformer_noise()
+    from lethe.encoders import (
+        OnnxBiEncoder,
+        OnnxCrossEncoder,
+        resolve_bi_encoder_name,
+        resolve_cross_encoder_name,
+    )
+    bi = OnnxBiEncoder(resolve_bi_encoder_name(cfg["bi_encoder"]))
+    xenc = OnnxCrossEncoder(resolve_cross_encoder_name(cfg["cross_encoder"]))
+
+    from lethe.rif import RIFConfig
+
+    rif = RIFConfig(
+        n_clusters=int(cfg.get("n_clusters", 30)),
+        use_rank_gap=bool(cfg.get("use_rank_gap", True)),
+    )
+    union = UnionStore(
+        roots, bi_encoder=bi, cross_encoder=xenc,
+        dim=bi.get_embedding_dimension(), rif_config=rif,
+    )
+    try:
+        hits = union.retrieve(args.query, k=args.top_k)
+    finally:
+        union.close()
+
+    if args.json_output:
+        print(json.dumps([
+            {
+                "project_slug": h.project_slug,
+                "project_root": str(h.project_root),
+                "id": h.id,
+                "content": h.content,
+                "score": float(h.score),
+            } for h in hits
+        ]))
+        return 0
+
+    if not hits:
+        print("(no results)")
+        return 0
+
+    for h in hits:
+        print(f"[{h.project_slug}] [{h.score:+.2f}] {h.id}  {_snippet(h.content)}")
+    return 0
+
+
+def _snippet(content: str, width: int = 160) -> str:
+    """First meaningful line: skip markdown headings and anchor comments."""
+    for line in content.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):
+            continue
+        if stripped.startswith("<!--") and stripped.endswith("-->"):
+            continue
+        return stripped[:width]
+    return "(heading only)"
 
 
 def cmd_expand(args: argparse.Namespace) -> int:
@@ -384,6 +538,53 @@ def cmd_enrich(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# Registry subcommands
+# ---------------------------------------------------------------------------
+
+def cmd_projects_list(args: argparse.Namespace) -> int:
+    from lethe import _registry
+
+    entries = _registry.load()
+    if args.json_output:
+        print(json.dumps([e.to_dict() for e in entries], indent=2))
+        return 0
+    if not entries:
+        print("(no registered projects)")
+        return 0
+    for e in entries:
+        print(f"{e.slug}\t{e.root}")
+    return 0
+
+
+def cmd_projects_add(args: argparse.Namespace) -> int:
+    from lethe import _registry
+
+    target = Path(args.path).resolve() if args.path else resolve_paths(None).root
+    entry = _registry.register(target)
+    print(f"registered: {entry.slug}  {entry.root}")
+    return 0
+
+
+def cmd_projects_remove(args: argparse.Namespace) -> int:
+    from lethe import _registry
+
+    removed = _registry.unregister(args.name)
+    if not removed:
+        print(f"no registered project matches {args.name!r}", file=sys.stderr)
+        return 1
+    print(f"removed: {args.name}")
+    return 0
+
+
+def cmd_projects_prune(args: argparse.Namespace) -> int:  # noqa: ARG001
+    from lethe import _registry
+
+    kept = _registry.prune()
+    print(f"{len(kept)} project(s) remain")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
 
@@ -400,13 +601,40 @@ def build_parser() -> argparse.ArgumentParser:
     p_index = sub.add_parser("index", help="Reindex markdown memory files.")
     p_index.add_argument("dir", nargs="?", default=None, help="Override memory directory.")
     p_index.add_argument("--json-output", action="store_true")
+    p_index.add_argument(
+        "--no-register",
+        action="store_true",
+        help="Don't add this project to ~/.lethe/projects.json.",
+    )
     p_index.set_defaults(func=cmd_index)
 
     p_search = sub.add_parser("search", help="Retrieve top-k memories for a query.")
     p_search.add_argument("query")
     p_search.add_argument("--top-k", type=int, default=5)
     p_search.add_argument("--json-output", action="store_true")
+    p_search.add_argument(
+        "--all", action="store_true",
+        help="Search across all registered projects (~/.lethe/projects.json).",
+    )
+    p_search.add_argument(
+        "--projects", default=None,
+        help="Comma-separated project slugs or paths. Implies --all-style union.",
+    )
     p_search.set_defaults(func=cmd_search)
+
+    p_projects = sub.add_parser("projects", help="Manage the global project registry.")
+    psub = p_projects.add_subparsers(dest="projects_action", required=True)
+    p_plist = psub.add_parser("list", help="List registered projects.")
+    p_plist.add_argument("--json-output", action="store_true")
+    p_plist.set_defaults(func=cmd_projects_list, requires_lock=False)
+    p_padd = psub.add_parser("add", help="Register a project by root path (default: cwd).")
+    p_padd.add_argument("path", nargs="?", default=None)
+    p_padd.set_defaults(func=cmd_projects_add, requires_lock=False)
+    p_prm = psub.add_parser("remove", help="Unregister a project by path or slug.")
+    p_prm.add_argument("name")
+    p_prm.set_defaults(func=cmd_projects_remove, requires_lock=False)
+    p_pprune = psub.add_parser("prune", help="Drop registry entries whose roots no longer exist.")
+    p_pprune.set_defaults(func=cmd_projects_prune, requires_lock=False)
 
     p_expand = sub.add_parser("expand", help="Print the full markdown section for a chunk id.")
     p_expand.add_argument("chunk_id")
@@ -442,6 +670,13 @@ def main(argv: list[str] | None = None) -> int:
         parser.print_help()
         return 2
     try:
+        if getattr(args, "requires_lock", True):
+            from lethe._lock import acquire as _acquire_lock
+
+            paths = resolve_paths(args.root)
+            paths.base.mkdir(parents=True, exist_ok=True)
+            with _acquire_lock(paths.base / "lethe.lock"):
+                return int(func(args) or 0)
         return int(func(args) or 0)
     except KeyboardInterrupt:
         print("interrupted", file=sys.stderr)

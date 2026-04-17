@@ -17,7 +17,14 @@ from lethe.db import MemoryDB
 from lethe.dedup import content_hash, is_near_duplicate
 from lethe.entry import MemoryEntry, Tier, create_entry
 from lethe.reranker import Reranker
-from lethe.rif import RIFConfig, apply_suppression_penalty, update_suppression
+from lethe.rif import (
+    ClusteredSuppressionState,
+    RIFConfig,
+    apply_suppression_penalty,
+    assign_cluster,
+    build_clusters,
+    update_suppression,
+)
 from lethe.vectors import VectorIndex
 
 
@@ -53,7 +60,7 @@ class MemoryStore:
         self.rif = rif_config or RIFConfig()
 
         # Storage layers
-        self.db = MemoryDB(self.path / "lethe.db")
+        self.db = MemoryDB(self.path / "lethe.duckdb")
         self.index = VectorIndex(dim=dim)
         self.reranker = Reranker(cross_encoder, confidence_threshold)
 
@@ -61,6 +68,17 @@ class MemoryStore:
         self.entries: dict[str, MemoryEntry] = {}
         self._embeddings: dict[str, npt.NDArray[np.float32]] = {}
         self._step = int(self.db.get_stat("step", "0"))
+
+        # Clustered RIF state (only used when rif.n_clusters > 0)
+        self._cluster_state: ClusteredSuppressionState | None = (
+            ClusteredSuppressionState() if self.rif.n_clusters > 0 else None
+        )
+        self._cluster_centroids: npt.NDArray[np.float32] | None = None
+        self._cluster_dirty: bool = True
+        # Query embeddings collected during retrieve() — used to build
+        # clusters that reflect user intent (not entry content).
+        self._query_emb_buffer: list[npt.NDArray[np.float32]] = []
+        self._min_cluster_queries: int = max(self.rif.n_clusters * 10, 30)
 
         # Load existing data
         self._load()
@@ -109,6 +127,20 @@ class MemoryStore:
         if ids:
             self.index.build(ids, np.stack(embs), contents)
 
+        # Rehydrate clustered RIF state if configured
+        if self._cluster_state is not None:
+            scores, last_updated = self.db.load_cluster_suppression()
+            if scores:
+                self._cluster_state.restore(scores, last_updated)
+            centroids = self.db.load_cluster_centroids()
+            if centroids is not None and centroids.shape[1] == self.dim:
+                self._cluster_centroids = centroids
+                self._cluster_dirty = False
+            qbuf_path = self.path / "query_embeddings.npz"
+            if qbuf_path.exists():
+                qdata = np.load(str(qbuf_path), allow_pickle=True)
+                self._query_emb_buffer = list(qdata["embeddings"])
+
     def add(
         self,
         content: str,
@@ -155,6 +187,31 @@ class MemoryStore:
         self._rebuild_index()
         return eid
 
+    def _ensure_clusters(self) -> None:
+        """Lazily build/rebuild cluster centroids over past query embeddings.
+
+        Clusters reflect *user intent* — queries about travel land in the
+        same cluster and share a suppression namespace. Clustering entry
+        embeddings (content topics) is a much weaker proxy and gives ~3x
+        less NDCG lift than query-based clusters in our benchmarks.
+
+        Until enough queries have been seen (>= n_clusters), the store
+        falls back to global suppression.
+        """
+        if self._cluster_state is None or self.rif.n_clusters <= 0:
+            return
+        if self._cluster_centroids is not None:
+            return  # built once, frozen
+        if len(self._query_emb_buffer) < self._min_cluster_queries:
+            self._cluster_centroids = None
+            return
+        # Use the full buffer for the one-time build (more queries → better
+        # centroids). After this, _cluster_dirty stays False forever.
+        embs = np.stack(self._query_emb_buffer).astype(np.float32)
+        self._cluster_centroids = build_clusters(embs, self.rif.n_clusters)
+        self._cluster_dirty = False
+        self._cluster_frozen = True
+
     def retrieve(
         self, query: str, k: int = 10,
     ) -> list[tuple[str, str, float]]:
@@ -168,12 +225,32 @@ class MemoryStore:
 
         query_emb = self.bi_encoder.encode(query, normalize_embeddings=True).astype(np.float32)
 
+        # Feed query embedding into the cluster-building buffer.
+        # Centroids are built once (when buffer reaches n_clusters) and then
+        # frozen — rebuilding invalidates cluster IDs which breaks the
+        # per-cluster suppression state.
+        if self._cluster_state is not None:
+            self._query_emb_buffer.append(query_emb.copy())
+
+        self._ensure_clusters()
+        if self._cluster_state is not None and self._cluster_centroids is not None:
+            cluster_id: int | None = assign_cluster(query_emb, self._cluster_centroids)
+            suppression_scores = self._cluster_state.get_cluster_scores(cluster_id)
+            last_updated = self._cluster_state.get_cluster_last_updated(cluster_id)
+        else:
+            cluster_id = None
+            suppression_scores = {
+                eid: self.entries[eid].suppression for eid in self.entries
+            }
+            last_updated = {
+                eid: self.entries[eid].last_retrieved_step for eid in self.entries
+            }
+
         # Shallow pass: BM25 + vector hybrid with RRF scores
         raw_candidates = self.index.search_hybrid_scored(query_emb, query, self.k_shallow)
         raw_candidates = [(eid, s) for eid, s in raw_candidates if eid in self.entries]
 
         # Apply RIF suppression penalty before cross-encoder
-        suppression_scores = {eid: self.entries[eid].suppression for eid in self.entries}
         adjusted = apply_suppression_penalty(raw_candidates, suppression_scores, self.rif.alpha)
         candidate_ids = [eid for eid, _ in adjusted[:self.k_shallow]]
 
@@ -229,14 +306,16 @@ class MemoryStore:
                 (eid, rank_lookup.get(eid, len(adjusted)), xenc_lookup.get(eid, 0.0))
                 for eid in candidate_ids
             ]
-        last_updated = {eid: self.entries[eid].last_retrieved_step for eid in self.entries}
         rif_updates = update_suppression(
             winner_ids, competitor_data, suppression_scores,
             len(candidate_ids), self.rif, self._step, last_updated,
         )
-        for eid, new_supp in rif_updates.items():
-            if eid in self.entries:
-                self.entries[eid].suppression = new_supp
+        if cluster_id is not None and self._cluster_state is not None:
+            self._cluster_state.update_cluster(cluster_id, rif_updates, self._step)
+        else:
+            for eid, new_supp in rif_updates.items():
+                if eid in self.entries:
+                    self.entries[eid].suppression = new_supp
 
         # Tier transitions
         self._check_tiers()
@@ -268,6 +347,18 @@ class MemoryStore:
         # Update entries in SQLite
         self.db.batch_update_entries(list(self.entries.values()))
         self.db.set_stat("step", str(self._step))
+        # Clustered RIF state
+        if self._cluster_state is not None:
+            scores, last = self._cluster_state.snapshot()
+            self.db.save_cluster_suppression(scores, last)
+        if self._cluster_centroids is not None:
+            self.db.save_cluster_centroids(self._cluster_centroids)
+        # Query embedding buffer for cluster rebuilds across sessions
+        if self._query_emb_buffer:
+            np.savez(
+                str(self.path / "query_embeddings.npz"),
+                embeddings=np.stack(self._query_emb_buffer),
+            )
 
     def close(self) -> None:
         """Save and close."""

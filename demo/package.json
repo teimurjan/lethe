@@ -1,0 +1,26 @@
+{
+  "name": "lethe-demo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lethe video demo (Remotion).",
+  "scripts": {
+    "dev": "remotion studio",
+    "collect": "cd .. && uv run python demo/scripts/collect.py",
+    "build:mp4": "remotion render lethe-demo out/lethe-demo.mp4 --codec=h264",
+    "build:gif": "remotion render lethe-demo out/lethe-demo.gif --codec=gif --every-nth-frame=2 --width=960",
+    "build": "bun run collect && bun run build:mp4 && bun run build:gif"
+  },
+  "dependencies": {
+    "@remotion/bundler": "4.0.250",
+    "@remotion/cli": "4.0.250",
+    "@remotion/paths": "4.0.250",
+    "react": "19.0.0",
+    "react-dom": "19.0.0",
+    "remotion": "4.0.250"
+  },
+  "devDependencies": {
+    "@types/react": "19.0.0",
+    "@types/react-dom": "19.0.0",
+    "typescript": "5.7.2"
+  }
+}

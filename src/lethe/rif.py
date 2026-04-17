@@ -226,3 +226,24 @@ class ClusteredSuppressionState:
             for s in cluster_scores.values() if s > threshold
         ]
         return float(np.mean(values)) if values else 0.0
+
+    def snapshot(
+        self,
+    ) -> tuple[dict[int, dict[str, float]], dict[int, dict[str, int]]]:
+        """Plain-dict copies suitable for persistence."""
+        scores = {cid: dict(d) for cid, d in self._scores.items()}
+        last = {cid: dict(d) for cid, d in self._last_updated.items()}
+        return scores, last
+
+    def restore(
+        self,
+        scores: dict[int, dict[str, float]],
+        last_updated: dict[int, dict[str, int]],
+    ) -> None:
+        """Replace state from a previously saved snapshot."""
+        self._scores = defaultdict(dict)
+        self._last_updated = defaultdict(dict)
+        for cid, d in scores.items():
+            self._scores[cid].update(d)
+        for cid, d in last_updated.items():
+            self._last_updated[cid].update(d)

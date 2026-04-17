@@ -69,12 +69,57 @@ def parse_anchor(chunk_text: str) -> dict[str, str] | None:
     }
 
 
+def embed_content(chunk_text: str) -> str:
+    """Return the chunk content with heading and anchor lines removed.
+
+    The progressive-disclosure anchor (``<!-- session:UUID turn:UUID
+    transcript:/long/path -->``) is ~150 chars of near-identical UUID noise
+    that every chunk written by the Stop hook carries. Left in place it
+    dominates the bi-encoder's pooled embedding, collapsing cosine
+    similarities above the 0.95 dedup threshold and turning retrieval into
+    "every chunk looks like every other chunk."
+
+    The anchor is still preserved inside ``chunk_map.json`` so ``lethe
+    expand`` and ``parse_anchor`` can recover it for deep-dive lookups.
+    """
+    kept: list[str] = []
+    for line in chunk_text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if stripped.startswith("<!--") and stripped.endswith("-->"):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def _has_body(body: str) -> bool:
+    """True if ``body`` contains any non-heading, non-anchor text.
+
+    Empty-section chunks (just a heading, optionally followed by an anchor
+    comment or blank lines) add noise to retrieval without carrying signal —
+    they often appear when SessionStart fires repeatedly or a turn produces
+    no summary. Skip them at index time.
+    """
+    for line in body.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("#"):  # any markdown heading, including `# Title`
+            continue
+        if stripped.startswith("<!--") and stripped.endswith("-->"):
+            continue
+        return True
+    return False
+
+
 def split_into_chunks(md_text: str, source: Path) -> list[Chunk]:
     """Split ``md_text`` on ``##`` / ``###`` headings.
 
     The leading block (anything before the first ``##`` heading) is returned
     as an anonymous chunk if it contains non-whitespace text. Top-level ``#``
-    headings are treated as file titles, not chunk separators.
+    headings are treated as file titles, not chunk separators. Heading-only
+    sections (no bullets under them) are dropped.
     """
     lines = md_text.splitlines()
     chunks: list[Chunk] = []
@@ -85,7 +130,7 @@ def split_into_chunks(md_text: str, source: Path) -> list[Chunk]:
         if not buf:
             return
         body = "\n".join(buf).strip()
-        if not body:
+        if not body or not _has_body(body):
             return
         chunks.append(
             Chunk(
@@ -187,7 +232,7 @@ class MarkdownStore:
                 unchanged += 1
                 continue
             inserted = store.add(
-                chunk.content,
+                embed_content(chunk.content),
                 entry_id=chunk.id,
                 session_id=chunk.source.stem,
             )

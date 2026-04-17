@@ -1,6 +1,7 @@
-"""Unit tests for lethe.db.MemoryDB using in-memory SQLite."""
+"""Unit tests for lethe.db.MemoryDB backed by DuckDB."""
 from __future__ import annotations
 
+import sqlite3
 from pathlib import Path
 
 import pytest
@@ -11,8 +12,8 @@ from lethe.entry import Tier
 
 @pytest.fixture
 def db(tmp_path: Path) -> MemoryDB:
-    """Fresh DB backed by a tmp file (sqlite3 doesn't share :memory: across connections)."""
-    return MemoryDB(tmp_path / "test.db")
+    """Fresh per-test DuckDB file."""
+    return MemoryDB(tmp_path / "test.duckdb")
 
 
 def test_insert_entry_persists_all_fields(db: MemoryDB, make_entry) -> None:
@@ -131,8 +132,37 @@ def test_rescue_cache_insert_load_clear(db: MemoryDB) -> None:
     assert db.load_rescue_entries() == []
 
 
-def test_close_is_idempotent(db: MemoryDB) -> None:
+def test_close_makes_conn_unusable(db: MemoryDB) -> None:
     db.close()
-    # Subsequent close should raise; we just verify the first close didn't corrupt state.
-    with pytest.raises(Exception):  # noqa: BLE001 - sqlite raises ProgrammingError
+    # Subsequent queries on a closed DuckDB connection raise.
+    with pytest.raises(Exception):  # noqa: BLE001 — duckdb.ConnectionException
         db.count()
+
+
+def test_legacy_sqlite_file_raises(tmp_path: Path) -> None:
+    """If a pre-migration lethe.db exists and no lethe.duckdb is present,
+    we refuse to open silently — users should `lethe reset` explicitly."""
+    legacy = tmp_path / "lethe.db"
+    # Create a minimal valid SQLite file so the check triggers on existence.
+    conn = sqlite3.connect(str(legacy))
+    conn.execute("CREATE TABLE placeholder (x INTEGER)")
+    conn.close()
+
+    with pytest.raises(RuntimeError, match="lethe reset"):
+        MemoryDB(tmp_path / "lethe.duckdb")
+
+
+def test_legacy_and_new_coexist_allows_open(tmp_path: Path) -> None:
+    """If both files exist, we prefer the new DuckDB and don't error out."""
+    # Create DuckDB first so the legacy-check branch doesn't fire.
+    MemoryDB(tmp_path / "lethe.duckdb").close()
+
+    # Now drop a legacy sqlite file alongside it; subsequent opens must succeed.
+    legacy = tmp_path / "lethe.db"
+    conn = sqlite3.connect(str(legacy))
+    conn.execute("CREATE TABLE placeholder (x INTEGER)")
+    conn.close()
+
+    db = MemoryDB(tmp_path / "lethe.duckdb")
+    assert db.count() == 0
+    db.close()

@@ -2,6 +2,8 @@
 
 Self-improving memory store for LLM agents. BM25 + dense vector hybrid retrieval with cross-encoder reranking, clustered retrieval-induced forgetting, and optional LLM write-time enrichment.
 
+Ships as a **Claude Code plugin** (`plugins/claude-code/`) that drops a `.lethe/` directory into each project, writes daily markdown memory via hooks, and surfaces prior-session context through a `memory-recall` skill.
+
 ## stack
 
 - Python 3.12, managed with `uv`
@@ -15,15 +17,28 @@ Self-improving memory store for LLM agents. BM25 + dense vector hybrid retrieval
 ## layout
 
 ```
-src/lethe/            # Production library (~97% test coverage)
+src/lethe/            # Production library (162 tests, ~95% coverage)
 ├── memory_store.py   # Main API: MemoryStore
-├── db.py             # SQLite persistence
+├── markdown_store.py # Markdown chunker (##/### headings, content hashes)
+├── cli.py            # `lethe` CLI: index/search/expand/status/config/reset/enrich/projects
+├── union_store.py    # Read-only cross-project search via DuckDB ATTACH
+├── db.py             # DuckDB persistence (lethe.duckdb, unlimited ATTACH)
 ├── vectors.py        # FAISS + BM25 index management
 ├── reranker.py       # Cross-encoder + adaptive depth
 ├── rif.py            # Retrieval-Induced Forgetting (clustered + gap)
 ├── enrichment.py     # Optional LLM write-time enrichment (Anthropic SDK)
 ├── dedup.py          # Hash + cosine deduplication
+├── encoders.py       # ONNX bi-encoder + cross-encoder adapters (fastembed)
+├── _lock.py          # fcntl-based per-project lock for concurrent CLI calls
+├── _registry.py      # ~/.lethe/projects.json for cross-project search
 └── entry.py          # MemoryEntry dataclass + Tier enum
+
+plugins/claude-code/  # Claude Code plugin
+├── hooks/            # SessionStart / UserPromptSubmit / Stop / SessionEnd
+├── scripts/          # transcript.py + derive-collection.sh helpers
+└── skills/memory-recall/
+
+.claude-plugin/       # Marketplace manifest (for `/plugin marketplace add`)
 
 benchmarks/           # Per-checkpoint benchmark scripts
 ├── run_*.py
@@ -46,6 +61,17 @@ uv venv --python 3.12 && uv pip install -e .
 uv run pytest tests/ -v
 uv run python experiments/data_prep.py --dataset longmemeval
 uv run python benchmarks/run_benchmark.py
+
+# CLI (exposed as console script `lethe`)
+lethe index                              # reindex .lethe/memory (auto-registers project)
+lethe search "query" --top-k 5           # single-project
+lethe search "query" --all --top-k 5     # all registered projects (DuckDB ATTACH)
+lethe projects list|add|remove|prune     # manage ~/.lethe/projects.json
+lethe expand <chunk-id>
+lethe status
+
+# Run CLI without local install
+uvx --from git+https://github.com/teimurjan/lethe lethe --version
 ```
 
 ## key architecture decisions

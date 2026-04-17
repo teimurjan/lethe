@@ -3,20 +3,24 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "lethe"
-version = "0.1.0"
+name = "lethe-memory"
+version = "0.1.0" # x-release-please-version
 description = "Self-improving memory store for LLM agents: hybrid retrieval, clustered retrieval-induced forgetting, optional LLM enrichment"
 requires-python = ">=3.11"
 dependencies = [
     "faiss-cpu>=1.7",
-    "sentence-transformers>=2.0",
+    "fastembed>=0.4",
     "numpy>=1.24",
     "rank_bm25>=0.2",
     "anthropic>=0.30",
+    "duckdb>=0.10",
 ]
 
 [project.optional-dependencies]
-benchmarks = ["beir>=2.0", "datasets>=2.0", "matplotlib>=3.7", "tqdm>=4.60"]
+# sentence-transformers/torch live here because benchmark scripts construct
+# them directly for reproducibility with published NDCG numbers. The CLI +
+# plugin path uses the ONNX-backed `fastembed` adapter in src/lethe/encoders.py.
+benchmarks = ["beir>=2.0", "datasets>=2.0", "matplotlib>=3.7", "tqdm>=4.60", "sentence-transformers>=2.0"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "mypy>=1.0"]
 
 [project.scripts]
@@ -29,7 +33,7 @@ packages = ["src/lethe"]
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["faiss", "datasets", "beir.*", "torch", "torch.*", "rank_bm25"]
+module = ["faiss", "datasets", "beir.*", "torch", "torch.*", "rank_bm25", "duckdb"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

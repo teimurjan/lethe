@@ -46,19 +46,38 @@ Preamble should be captured as an anonymous chunk.
 - Just a bullet under the session heading
 """
     chunks = split_into_chunks(md, src)
+    # The "## Session 09:00" section has no body of its own (just the heading
+    # followed by a deeper heading), so it's dropped to keep retrieval clean.
     assert [c.heading for c in chunks] == [
         "",  # preamble block under the top-level `#` heading
-        "Session 09:00",  # ## boundary — empty body apart from the heading line
         "09:00",  # ### boundary — the actual turn entry
         "Session 10:00",  # ## boundary — body follows the heading
     ]
     assert all(c.source == src for c in chunks)
-    # All chunk ids are unique and 16 chars
     ids = {c.id for c in chunks}
     assert len(ids) == len(chunks)
     assert all(len(cid) == 16 for cid in ids)
-    # The ### chunk carries the anchor; expose it via Chunk.anchor.
-    turn_chunk = next(c for c in chunks if c.heading == "09:00")
+
+
+def test_split_into_chunks_drops_heading_only_sections(tmp_path: Path) -> None:
+    """Duplicate SessionStart fires produce heading-only chunks that
+    pollute retrieval. They must be dropped at index time."""
+    src = tmp_path / "dup.md"
+    md = """# 2026-04-16
+
+## Session 13:45
+
+## Session 13:45
+
+### 13:45
+<!-- session:s1 turn:t1 transcript:/tmp/x.jsonl -->
+- real content
+"""
+    chunks = split_into_chunks(md, src)
+    # Preamble is title-only; both "## Session 13:45" are body-less; only the
+    # final "### 13:45" chunk has bullets and should survive.
+    assert [c.heading for c in chunks] == ["13:45"]
+    turn_chunk = next(c for c in chunks if c.heading == "13:45")
     assert turn_chunk.anchor == {
         "session": "s1", "turn": "t1", "transcript": "/tmp/x.jsonl",
     }

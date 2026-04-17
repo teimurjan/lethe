@@ -36,6 +36,17 @@ def message_text(msg: object) -> str:
     return ""
 
 
+def is_tool_result_only(msg: object) -> bool:
+    if not isinstance(msg, dict):
+        return False
+    content = msg.get("content")
+    if not isinstance(content, list) or not content:
+        return False
+    return all(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+    )
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("path", type=Path)
@@ -63,6 +74,8 @@ def main() -> int:
             role = msg.get("role") or rec.get("type")
             uid = rec.get("uuid") or rec.get("id")
             if role == "user":
+                if is_tool_result_only(msg):
+                    continue
                 text = message_text(msg)
                 if not text:
                     continue

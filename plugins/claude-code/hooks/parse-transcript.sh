@@ -20,7 +20,7 @@ from pathlib import Path
 
 path = Path(sys.argv[1])
 
-def message_text(msg):
+def message_text(msg, include_tool_results=False):
     if not isinstance(msg, dict):
         return ""
     content = msg.get("content")
@@ -37,10 +37,23 @@ def message_text(msg):
             elif btype == "tool_use":
                 name = block.get("name", "?")
                 parts.append(f"[tool_use: {name}]")
-            elif btype == "tool_result":
+            elif btype == "tool_result" and include_tool_results:
                 parts.append("[tool_result]")
         return "\n".join(parts)
     return ""
+
+
+def is_tool_result_only(msg):
+    """Claude Code encodes tool results as role=user messages. Detect them so
+    we don't mistake a tool_result for a real user prompt."""
+    if not isinstance(msg, dict):
+        return False
+    content = msg.get("content")
+    if not isinstance(content, list) or not content:
+        return False
+    return all(
+        isinstance(b, dict) and b.get("type") == "tool_result" for b in content
+    )
 
 
 user_turn = None
@@ -60,6 +73,8 @@ with path.open() as f:
         msg = rec.get("message") or rec
         role = msg.get("role") or rec.get("type")
         if role == "user":
+            if is_tool_result_only(msg):
+                continue
             text = message_text(msg)
             if text:
                 user_turn = text

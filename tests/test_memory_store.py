@@ -7,10 +7,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from lethe.entry import Tier
 from lethe.memory_store import MemoryStore
+from lethe.rif import RIFConfig, assign_cluster
 
 
 # ---------- Fixture ----------
@@ -274,3 +276,230 @@ def test_add_raises_without_bi_encoder(tmp_store_path: Path, mock_cross_encoder)
     s = MemoryStore(path=tmp_store_path, bi_encoder=None, cross_encoder=mock_cross_encoder, dim=16)
     with pytest.raises(ValueError, match="bi_encoder required"):
         s.add("text")
+
+
+# ---------- Clustered RIF ----------
+
+
+def _clustered_store(
+    tmp_store_path: Path, bi, xe, *, n_clusters: int = 2,
+) -> MemoryStore:
+    store = MemoryStore(
+        path=tmp_store_path,
+        bi_encoder=bi,
+        cross_encoder=xe,
+        dim=16,
+        k_shallow=10,
+        k_deep=20,
+        rif_config=RIFConfig(
+            alpha=0.3,
+            use_rank_gap=True,
+            suppression_rate=0.3,
+            n_clusters=n_clusters,
+        ),
+    )
+    # In tests with tiny n_clusters, override the 10× minimum so centroids
+    # build after just n_clusters queries (avoids issuing 300 dummy queries).
+    store._min_cluster_queries = n_clusters
+    return store
+
+
+def _force_topic_embedding(
+    store: MemoryStore, entry_id: str, half: int, dim: int = 16,
+) -> None:
+    """Pin an entry's embedding to a chosen half of the vector space.
+
+    half=0 → mass on dims [0..dim/2); half=1 → mass on dims [dim/2..dim).
+    This lets us build two clearly-separable topic clusters without a real
+    sentence encoder.
+    """
+    rng = np.random.default_rng(abs(hash(entry_id)) % (2**32))
+    v = rng.standard_normal(dim).astype(np.float32) * 0.02
+    if half == 0:
+        v[: dim // 2] += 1.0
+    else:
+        v[dim // 2:] += 1.0
+    v /= np.linalg.norm(v) + 1e-12
+    store._embeddings[entry_id] = v
+    store.entries[entry_id].base_embedding = v
+    store.entries[entry_id].embedding = v.copy()
+
+
+def test_clustered_rif_state_populated_entry_suppression_untouched(
+    tmp_store_path: Path, mock_bi_encoder, mock_cross_encoder,
+) -> None:
+    """In clustered mode, updates land in _cluster_state, not entry.suppression."""
+    store = _clustered_store(tmp_store_path, mock_bi_encoder, mock_cross_encoder)
+    eids = []
+    for text in ["alpha bravo", "charlie delta", "echo foxtrot", "golf hotel"]:
+        eids.append(store.add(text))
+
+    assert store._cluster_state is not None
+
+    store.retrieve("alpha", k=2)
+    store.retrieve("delta", k=2)
+
+    # At least one cluster has accumulated per-entry data.
+    touched = any(
+        store._cluster_state.get_cluster_scores(cid)
+        for cid in range(store.rif.n_clusters)
+    )
+    assert touched, "expected clustered state to register at least one update"
+
+    # Global entry.suppression column stays at default (0.0) in clustered mode.
+    for eid in eids:
+        assert store.entries[eid].suppression == 0.0
+
+
+def test_clustered_rif_is_cue_dependent(
+    tmp_store_path: Path, mock_bi_encoder, mock_cross_encoder,
+) -> None:
+    """An entry suppressed by topic-A queries is not suppressed for topic-B queries."""
+    store = _clustered_store(tmp_store_path, mock_bi_encoder, mock_cross_encoder)
+
+    topic_a_texts = [
+        "alpha apple tokenA one",
+        "alpha apple tokenA two",
+        "alpha apple tokenA three",
+    ]
+    topic_b_texts = [
+        "beta banana tokenB one",
+        "beta banana tokenB two",
+        "beta banana tokenB three",
+    ]
+    a_ids = [store.add(t) for t in topic_a_texts]
+    b_ids = [store.add(t) for t in topic_b_texts]
+    for eid in a_ids:
+        _force_topic_embedding(store, eid, half=0)
+    for eid in b_ids:
+        _force_topic_embedding(store, eid, half=1)
+    store._rebuild_index()
+
+    query_a = np.zeros(16, dtype=np.float32)
+    query_a[:8] = 1.0
+    query_a /= np.linalg.norm(query_a)
+    query_b = np.zeros(16, dtype=np.float32)
+    query_b[8:] = 1.0
+    query_b /= np.linalg.norm(query_b)
+
+    def topic_aware_encode(text, **_kwargs):  # type: ignore[no-untyped-def]
+        if "tokenA" in text:
+            return query_a
+        if "tokenB" in text:
+            return query_b
+        return np.zeros(16, dtype=np.float32)
+
+    mock_bi_encoder.encode = topic_aware_encode  # type: ignore[assignment]
+
+    # Seed with one A + one B so the first build (at n_clusters=2) gets
+    # distinct centroids. Centroids are frozen after this build.
+    store.retrieve("tokenA seed", k=1)  # buffer=1, no centroids yet
+    store.retrieve("tokenB seed", k=1)  # buffer=2, centroids built: [A, B]
+    assert store._cluster_centroids is not None
+    cid_a = assign_cluster(query_a, store._cluster_centroids)
+    cid_b = assign_cluster(query_b, store._cluster_centroids)
+    assert cid_a != cid_b, "topics must fall into different clusters"
+
+    # Reset cluster suppression so seeding phase doesn't contaminate.
+    # Freeze centroids so k-means rebuilds don't shift cluster assignments
+    # mid-test (production has stable centroids with 1000s of queries; in
+    # this 16-dim test with 2 clusters, each rebuild shuffles IDs).
+    from lethe.rif import ClusteredSuppressionState
+    store._cluster_state = ClusteredSuppressionState()
+    store._cluster_rebuild_interval = 100_000
+
+    # Now issue many topic-A queries only. Suppression should land in
+    # cid_a exclusively.
+    for _ in range(8):
+        store.retrieve("tokenA query", k=1)
+
+    scores_a = store._cluster_state.get_cluster_scores(cid_a)
+    scores_b = store._cluster_state.get_cluster_scores(cid_b)
+    max_a = max(scores_a.values(), default=0.0)
+    max_b = max(scores_b.values(), default=0.0)
+    assert max_a > 0.0, "cluster A should have accumulated suppression"
+    assert max_b == 0.0, (
+        f"cluster B should be untouched ({max_b}) -- only topic-A queries issued"
+    )
+
+
+def test_clustered_rif_requires_enough_entries_falls_back_to_global_view(
+    tmp_store_path: Path, mock_bi_encoder, mock_cross_encoder,
+) -> None:
+    """With fewer entries than n_clusters, retrieve() still works (no centroids)."""
+    store = _clustered_store(
+        tmp_store_path, mock_bi_encoder, mock_cross_encoder, n_clusters=5,
+    )
+    store.add("solo entry")
+    # Only one entry — far fewer than n_clusters=5.
+    results = store.retrieve("solo entry", k=1)
+    assert len(results) == 1
+    # Centroids should not have been built.
+    assert store._cluster_centroids is None
+
+
+def test_cluster_centroids_build_once_then_freeze(
+    tmp_store_path: Path, mock_bi_encoder, mock_cross_encoder,
+) -> None:
+    """Centroids are built once n_clusters query embeddings are collected, then frozen."""
+    store = _clustered_store(tmp_store_path, mock_bi_encoder, mock_cross_encoder)
+    for t in ["one two", "three four", "five six"]:
+        store.add(t)
+    # n_clusters=2. First retrieve: buffer has 1, not enough.
+    store.retrieve("one two", k=1)
+    assert store._cluster_centroids is None
+    # Second retrieve: buffer has 2, centroids build.
+    store.retrieve("three four", k=1)
+    assert store._cluster_centroids is not None
+    first = store._cluster_centroids.copy()
+
+    # Further queries don't rebuild — centroids are frozen.
+    for i in range(200):
+        store.retrieve(f"extra query {i}", k=1)
+    assert np.allclose(store._cluster_centroids, first)
+
+
+def test_cluster_state_persists_across_save_load(
+    tmp_store_path: Path, mock_bi_encoder, mock_cross_encoder,
+) -> None:
+    """save()/reopen round-trips cluster_suppression and cluster_centroids."""
+    s1 = _clustered_store(tmp_store_path, mock_bi_encoder, mock_cross_encoder)
+    for t in ["alpha bravo", "charlie delta", "echo foxtrot", "golf hotel", "india juliet"]:
+        s1.add(t)
+    s1.retrieve("alpha bravo", k=2)
+    s1.retrieve("charlie delta", k=2)
+    # Snapshot expected state
+    assert s1._cluster_state is not None
+    expected_scores, expected_last = s1._cluster_state.snapshot()
+    assert s1._cluster_centroids is not None
+    expected_centroids = s1._cluster_centroids.copy()
+    s1.save()
+    s1.close()
+
+    s2 = _clustered_store(tmp_store_path, mock_bi_encoder, mock_cross_encoder)
+    assert s2._cluster_state is not None
+    got_scores, got_last = s2._cluster_state.snapshot()
+    assert got_scores == expected_scores
+    assert got_last == expected_last
+    assert s2._cluster_centroids is not None
+    assert np.allclose(s2._cluster_centroids, expected_centroids)
+    assert s2._cluster_dirty is False
+
+
+def test_global_rif_unchanged_when_n_clusters_zero(
+    tmp_store_path: Path, mock_bi_encoder, mock_cross_encoder,
+) -> None:
+    """Default n_clusters=0 path still writes to entry.suppression, not cluster state."""
+    store = MemoryStore(
+        path=tmp_store_path,
+        bi_encoder=mock_bi_encoder,
+        cross_encoder=mock_cross_encoder,
+        dim=16,
+        rif_config=RIFConfig(alpha=0.3, use_rank_gap=True, suppression_rate=0.3),
+    )
+    assert store._cluster_state is None
+    for t in ["alpha bravo", "charlie delta", "echo foxtrot", "golf hotel"]:
+        store.add(t)
+    store.retrieve("alpha", k=2)
+    # Global path: cluster centroids never computed.
+    assert store._cluster_centroids is None
