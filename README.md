@@ -23,9 +23,7 @@ Numbers on the full 199,509-turn LongMemEval S corpus, **turn-level retrieval, N
 
 Full methodology in [BENCHMARKS.md](BENCHMARKS.md). 17 checkpoints (10 failed) in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md).
 
-
-https://github.com/user-attachments/assets/ea6e9657-7525-4fed-ba40-df7a14e6b9f4
-
+![](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/demo.gif)
 
 ## Install and quick start
 
