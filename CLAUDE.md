@@ -105,4 +105,4 @@ Full research journey: [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md)
 
 ## git commits
 
-Use conventional commits. release-please is configured to only bump on `feat:` (minor) and `fix:` (patch). Use `feat:` or `fix:` only when you want a PyPI release. For everything else use a plain message with no prefix (release-please ignores non-conventional commits entirely).
+Use conventional commits. release-please is configured to only bump on `feat:` (minor) and `fix:` (patch). Use `feat:` or `fix:` only when you want a PyPI release. For everything else use other types of conventional commits.

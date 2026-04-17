@@ -57,7 +57,9 @@ store.close()
 
 As a CLI: `uv tool install lethe-memory && lethe --version`
 
-As a Claude Code plugin: `/plugin marketplace add teimurjan/lethe`
+As a Claude Code plugin: `/plugin marketplace add teimurjan/lethe && /plugin install lethe`
+
+To update: `uv tool install --upgrade lethe-memory && /reload-plugins`
 
 See [plugins/claude-code/README.md](plugins/claude-code/README.md) for plugin details.
 
