@@ -20,8 +20,11 @@ Find memories relevant to: $ARGUMENTS
 ## Steps
 
 1. **Search.** Run the CLI:
-   - Preferred: `lethe search "<query>" --top-k 5 --json-output`
+   - Current project: `lethe search "<query>" --top-k 5 --json-output`
+   - All registered projects: `lethe search "<query>" --all --top-k 5 --json-output`
    - Fallback (CLI not on PATH): `uvx --from git+https://github.com/teimurjan/lethe lethe search "<query>" --top-k 5 --json-output`
+
+   Use `--all` when the user asks to search across projects, references work from another repo, or the current-project search returns no relevant results. Every `lethe index` auto-registers the project, so `--all` searches everything the user has indexed.
 
    Output is JSON: `[{"id": "...", "content": "...", "score": 4.2}, ...]`.
 
