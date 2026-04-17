@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.2.1...lethe-memory-v0.2.2) (2026-04-17)
+
+
+### Bug Fixes
+
+* Remove chunk_map.json, expand reads from DuckDB directly ([5cb8c84](https://github.com/teimurjan/lethe/commit/5cb8c843213d91b5c561e97a5b058d14d52b0652))
+
 ## [0.2.1](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.2.0...lethe-memory-v0.2.1) (2026-04-17)
 
 
