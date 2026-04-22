@@ -21,12 +21,9 @@ Most memory tools are static caches - you put strings in, you get strings back b
 
 What happens after install:
 
-- Every session gets summarized into `.lethe/memory/YYYY-MM-DD.md` via a `Stop` hook. Plain markdown, edit or delete by hand.
-- On each new session, Claude sees the last ~30 lines from the two most recent daily files as additional context.
-- When prior context would help a query, Claude invokes the `memory-recall` skill, which runs hybrid BM25 + dense retrieval with cross-encoder reranking on your project's accumulated memory.
-- Memory is per-project; a `.lethe/` directory drops into each project's git root the first time the plugin runs there.
-
-Cross-project search: ask Claude something like "check across all projects" or invoke the skill with `--all`. Lethe opens every registered project's local DuckDB read-only via ATTACH and merges results via RRF. No central store, no sync, each project stays local.
+- Every session is summarized into `.lethe/memory/YYYY-MM-DD.md` per project. Plain markdown, edit by hand if you want.
+- Claude sees recent memory at session start and calls the `memory-recall` skill when a past session would help.
+- Ask "check across projects" or pass `--all` to search every registered project at once.
 
 Update: `uv tool install --upgrade lethe-memory && /reload-plugins`
 
