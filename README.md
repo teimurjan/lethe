@@ -10,24 +10,42 @@ A memory store for LLM agents that **gets better the more you use it**. Hybrid B
 
 Most memory tools are static caches - you put strings in, you get strings back by similarity, and the retrieval function never changes. lethe is different: every retrieval teaches it which entries are chronic distractors for which kinds of queries, and it quietly suppresses them over time. No fine-tuning, no extra LLM calls - just bookkeeping inspired by how human memory actually works ([Anderson, 1994](https://psycnet.apa.org/record/1994-29917-001)).
 
-## Benchmark
-
-Numbers on the full 199,509-turn LongMemEval S corpus, **turn-level retrieval, NDCG@10, no leakage**. Most memory-tool benchmarks use ~50 sessions at session granularity - a ~2000× easier task. Those 99% numbers don't translate to this setup.
-
-| Stage | NDCG@10 | notes |
-|---|---|---|
-| Hybrid BM25 + vector (RRF) | 0.217 | basic retrieval (most popular) |
-| + cross-encoder reranking | 0.293 | +35% from semantic reranking |
-| + clustered+gap RIF (checkpoint 13) | **0.312** | +6.5% from retrieval-induced forgetting (paired permutation p<0.002, 95% CI excludes zero) |
-| + LLM enrichment, on covered queries | **0.473** | +21% on the 75 queries where the answer turn was Haiku-enriched |
-
-**Scope.** The RIF gain is workload-specific. The mechanism targets the chronic-false-positive pattern in a single user's long-term conversation memory. On NFCorpus (a non-conversational medical IR benchmark) it doesn't transfer: three of four variants significantly regress. We diagnose this in the arXiv paper (corpus saturation + workload mismatch) and scope the claim to long-term conversational memory. Use lethe for what it's good at; don't expect it to help on general ad-hoc retrieval.
-
-Full methodology in [BENCHMARKS.md](BENCHMARKS.md). 18 checkpoints (11 failed or null) in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md). Statistical rigor and the NFCorpus replication in [arxiv/paper.tex](arxiv/paper.tex).
-
-![](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/demo.gif)
-
 ## Install and quick start
+
+### As a Claude Code plugin (recommended for daily use)
+
+```
+/plugin marketplace add teimurjan/lethe
+/plugin install lethe
+```
+
+What happens after install:
+
+- Every session gets summarized into `.lethe/memory/YYYY-MM-DD.md` via a `Stop` hook. Plain markdown, edit or delete by hand.
+- On each new session, Claude sees the last ~30 lines from the two most recent daily files as additional context.
+- When prior context would help a query, Claude invokes the `memory-recall` skill, which runs hybrid BM25 + dense retrieval with cross-encoder reranking on your project's accumulated memory.
+- Memory is per-project; a `.lethe/` directory drops into each project's git root the first time the plugin runs there.
+
+Cross-project search: ask Claude something like "check across all projects" or invoke the skill with `--all`. Lethe opens every registered project's local DuckDB read-only via ATTACH and merges results via RRF. No central store, no sync, each project stays local.
+
+Update: `uv tool install --upgrade lethe-memory && /reload-plugins`
+
+See [plugins/claude-code/README.md](plugins/claude-code/README.md) for the full hook table, config knobs, and debugging.
+
+### As a CLI
+
+```bash
+uv tool install lethe-memory
+lethe --version
+
+lethe index                                     # reindex .lethe/memory
+lethe search "your query" --top-k 5             # single project
+lethe search "your query" --all --top-k 5       # all registered projects
+lethe projects list
+lethe status
+```
+
+### As a Python library
 
 ```bash
 pip install lethe-memory
@@ -55,13 +73,22 @@ store.save()
 store.close()
 ```
 
-As a CLI: `uv tool install lethe-memory && lethe --version`
+## Benchmark
 
-As a Claude Code plugin: `/plugin marketplace add teimurjan/lethe && /plugin install lethe`
+Numbers on the full 199,509-turn LongMemEval S corpus, **turn-level retrieval, NDCG@10, no leakage**. Most memory-tool benchmarks use ~50 sessions at session granularity - a ~2000× easier task. Those 99% numbers don't translate to this setup.
 
-To update: `uv tool install --upgrade lethe-memory && /reload-plugins`
+| Stage | NDCG@10 | notes |
+|---|---|---|
+| Hybrid BM25 + vector (RRF) | 0.217 | basic retrieval (most popular) |
+| + cross-encoder reranking | 0.293 | +35% from semantic reranking |
+| + clustered+gap RIF (checkpoint 13) | **0.312** | +6.5% from retrieval-induced forgetting (paired permutation p<0.002, 95% CI excludes zero) |
+| + LLM enrichment, on covered queries | **0.473** | +21% on the 75 queries where the answer turn was Haiku-enriched |
 
-See [plugins/claude-code/README.md](plugins/claude-code/README.md) for plugin details.
+**Scope.** The RIF gain is workload-specific. The mechanism targets the chronic-false-positive pattern in a single user's long-term conversation memory. On NFCorpus (a non-conversational medical IR benchmark) it doesn't transfer: three of four variants significantly regress. We diagnose this in the arXiv paper (corpus saturation + workload mismatch) and scope the claim to long-term conversational memory. Use lethe for what it's good at; don't expect it to help on general ad-hoc retrieval.
+
+Full methodology in [BENCHMARKS.md](BENCHMARKS.md). 18 checkpoints (11 failed or null) in [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md). Statistical rigor and the NFCorpus replication in [arxiv/paper.tex](arxiv/paper.tex).
+
+![](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/demo.gif)
 
 ## How it works
 
