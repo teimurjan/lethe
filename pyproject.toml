@@ -24,6 +24,7 @@ dependencies = [
 # plugin path uses the ONNX-backed `fastembed` adapter in src/lethe/encoders.py.
 benchmarks = ["beir>=2.0", "datasets>=2.0", "matplotlib>=3.7", "tqdm>=4.60", "sentence-transformers>=2.0"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "mypy>=1.0"]
+tui = ["textual>=0.80"]
 
 [project.scripts]
 lethe = "lethe.cli:main"

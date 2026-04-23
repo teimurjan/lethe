@@ -388,3 +388,34 @@ def test_lock_allows_sequential_cli_in_same_project(
     assert cli.main(["index"]) == 0
     assert cli.main(["status"]) == 0
     assert cli.main(["reset", "--yes"]) == 0
+
+
+# ---------- TUI subcommand ----------
+
+def test_tui_parser_wires_cmd_tui_without_lock() -> None:
+    """`lethe tui` parses and dispatches to cmd_tui; runs without the per-
+    project lock since the TUI is interactive and would block other CLI
+    calls for the lifetime of the session."""
+    parser = cli.build_parser()
+    args = parser.parse_args(["tui"])
+    assert args.func is cli.cmd_tui
+    assert getattr(args, "requires_lock", True) is False
+
+
+def test_cmd_tui_missing_textual_exits_with_install_hint(
+    monkeypatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """When the 'tui' extra isn't installed, cmd_tui returns 2 with a
+    hint pointing at `lethe-memory[tui]` instead of crashing."""
+    import sys
+
+    # Block any attempt to import textual by making sys.modules[...] = None,
+    # which per the Python import spec raises ModuleNotFoundError.
+    monkeypatch.setitem(sys.modules, "textual", None)
+
+    import argparse
+    rc = cli.cmd_tui(argparse.Namespace())
+    assert rc == 2
+    err = capsys.readouterr().err
+    assert "tui" in err.lower()
+    assert "[tui]" in err

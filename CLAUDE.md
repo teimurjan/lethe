@@ -2,7 +2,7 @@
 
 Self-improving memory store for LLM agents. BM25 + dense vector hybrid retrieval with cross-encoder reranking, clustered retrieval-induced forgetting, and optional LLM write-time enrichment.
 
-Ships as a **Claude Code plugin** (`plugins/claude-code/`) that drops a `.lethe/` directory into each project, writes daily markdown memory via hooks, and surfaces prior-session context through a `memory-recall` skill.
+Ships as a **Claude Code plugin** (`plugins/claude-code/`) that drops a `.lethe/` directory into each project, writes daily markdown memory via hooks, and surfaces prior-session context through `recall` (current project) and `recall-global` (all registered projects) skills.
 
 ## stack
 
@@ -17,10 +17,11 @@ Ships as a **Claude Code plugin** (`plugins/claude-code/`) that drops a `.lethe/
 ## layout
 
 ```
-src/lethe/            # Production library (162 tests, ~95% coverage)
+src/lethe/            # Production library (168 tests)
 ├── memory_store.py   # Main API: MemoryStore
 ├── markdown_store.py # Markdown chunker (##/### headings, content hashes)
-├── cli.py            # `lethe` CLI: index/search/expand/status/config/reset/enrich/projects
+├── cli.py            # `lethe` CLI: index/search/expand/status/config/reset/enrich/projects/tui
+├── tui.py            # Textual-based interactive browser (optional `[tui]` extra)
 ├── union_store.py    # Read-only cross-project search via DuckDB ATTACH
 ├── db.py             # DuckDB persistence (lethe.duckdb, unlimited ATTACH)
 ├── vectors.py        # FAISS + BM25 index management
@@ -36,7 +37,9 @@ src/lethe/            # Production library (162 tests, ~95% coverage)
 plugins/claude-code/  # Claude Code plugin
 ├── hooks/            # SessionStart / UserPromptSubmit / Stop / SessionEnd
 ├── scripts/          # transcript.py + derive-collection.sh helpers
-└── skills/memory-recall/
+└── skills/
+    ├── recall/           # search memories in the current project
+    └── recall-global/    # search memories across all registered projects (--all)
 
 .claude-plugin/       # Marketplace manifest (for `/plugin marketplace add`)
 
@@ -69,6 +72,7 @@ lethe search "query" --all --top-k 5     # all registered projects (DuckDB ATTAC
 lethe projects list|add|remove|prune     # manage ~/.lethe/projects.json
 lethe expand <chunk-id>
 lethe status
+lethe tui                                # interactive TUI (needs `uv pip install -e '.[tui]'`)
 
 # Run CLI without local install
 uvx --from git+https://github.com/teimurjan/lethe lethe --version

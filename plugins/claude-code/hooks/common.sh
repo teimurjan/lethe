@@ -105,6 +105,23 @@ PY
   fi
 }
 
+_sanitize_session_id() {
+  # Hash the session_id before it becomes part of a filesystem path, so a
+  # hostile or malformed id (containing /, .., spaces, newlines, etc.) can't
+  # escape LETHE_DIR or create weird filenames. Deterministic: the same id
+  # always maps to the same key, which lets session-end.sh find the sentinel
+  # written by user-prompt-submit.sh.
+  local id="$1"
+  if command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "${id}" | sha256sum | awk '{print $1}'
+  elif command -v shasum >/dev/null 2>&1; then
+    printf '%s' "${id}" | shasum -a 256 | awk '{print $1}'
+  else
+    # Fallback: replace anything outside the safe allowlist with _.
+    printf '%s' "${id}" | tr -c '[:alnum:]._-' '_'
+  fi
+}
+
 _json_encode_str() {
   local s="$1"
   if command -v python3 >/dev/null 2>&1; then
