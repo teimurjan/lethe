@@ -590,18 +590,19 @@ def cmd_projects_prune(args: argparse.Namespace) -> int:  # noqa: ARG001
 
 
 def cmd_tui(args: argparse.Namespace) -> int:  # noqa: ARG001
+    # Probe textual separately so the missing-extra path is a clean exit,
+    # not a noisy ImportError from deep inside ``lethe.tui``'s own imports.
     try:
-        from lethe import tui
-    except ImportError as exc:
-        if "textual" in str(exc).lower():
-            print(
-                "lethe tui requires the 'tui' extra. Install with:\n"
-                "    uv pip install -e '.[tui]'\n"
-                "    # or, from PyPI: pip install 'lethe-memory[tui]'",
-                file=sys.stderr,
-            )
-            return 2
-        raise
+        import textual  # noqa: F401
+    except ImportError:
+        print(
+            "lethe tui requires the 'tui' extra. Install with:\n"
+            "    uv pip install -e '.[tui]'\n"
+            "    # or, from PyPI: pip install 'lethe-memory[tui]'",
+            file=sys.stderr,
+        )
+        return 2
+    from lethe import tui
     return tui.run()
 
 

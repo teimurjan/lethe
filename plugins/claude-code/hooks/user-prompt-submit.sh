@@ -24,9 +24,12 @@ fi
 
 # One header per session_id. Sentinel lives under .lethe and is removed by
 # session-end.sh; if session-end never fires the sentinel is harmless and
-# simply suppresses duplicate headers for an already-closed session.
+# simply suppresses duplicate headers for an already-closed session. The
+# session_id is hashed before it's interpolated into the path (common.sh)
+# so a hostile/malformed id can't escape LETHE_DIR.
 if [ -n "${SESSION_ID}" ]; then
-  SENTINEL="${LETHE_DIR}/.session-${SESSION_ID}.header"
+  SESSION_KEY="$(_sanitize_session_id "${SESSION_ID}")"
+  SENTINEL="${LETHE_DIR}/.session-${SESSION_KEY}.header"
   if [ ! -f "${SENTINEL}" ]; then
     printf '\n## Session %s\n' "${NOW}" >>"${TODAY_FILE}"
     : >"${SENTINEL}"

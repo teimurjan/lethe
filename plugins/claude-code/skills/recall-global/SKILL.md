@@ -25,7 +25,7 @@ Find memories relevant to: $ARGUMENTS
 
 2. **Filter.** Skip results that obviously don't match the user's question. A weak cross-encoder score (< 0) usually means a miss.
 
-3. **Expand.** For the top 2–3 hits, run `lethe expand <id>` (optionally `--project <slug>` if the chunk belongs to a different registered project) to see the full markdown section.
+3. **Expand.** For the top 2–3 hits, run `lethe --root <project_root> expand <id>` to see the full markdown section — use the `project_root` from the search result so the expand hits the right project's index. (Or `cd` into that repo and run `lethe expand <id>`.)
 
 4. **Summarize.** Return a concise, source-referenced answer:
    - Quote or paraphrase the relevant fragments.

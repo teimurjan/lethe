@@ -28,7 +28,9 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from rich.markup import escape as _escape_markup
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
@@ -91,9 +93,12 @@ class ProjectItem(ListItem):
 
 class ResultItem(ListItem):
     def __init__(self, hit: SearchHit) -> None:
+        # Styling via markup is fine for score/tag (we control them), but
+        # hit.snippet() is user content — escape it so stray `[...]` doesn't
+        # get interpreted (or crash rendering on malformed markup).
         score = f"[cyan]{hit.score:+.2f}[/]"
-        tag = f"[magenta]{hit.project_slug}[/] " if hit.project_slug else ""
-        line = f"{tag}{score}  {hit.snippet(200)}"
+        tag = f"[magenta]{_escape_markup(hit.project_slug)}[/] " if hit.project_slug else ""
+        line = f"{tag}{score}  {_escape_markup(hit.snippet(200))}"
         super().__init__(Static(line))
         self.hit = hit
 
@@ -186,6 +191,14 @@ class LetheApp(App[None]):
         self._scope = Scope(project=None)
         self._searching = False
 
+        # Retrieval objects are expensive to build (ONNX model load, DuckDB
+        # ATTACH). Cache across searches and close in on_unmount so the UI
+        # feels snappy on repeated queries within a scope.
+        self._bi_encoder: Any = None
+        self._cross_encoder: Any = None
+        self._union_store: Any = None
+        self._project_stores: dict[str, Any] = {}
+
     # ---- layout -----------------------------------------------------------
 
     def compose(self) -> ComposeResult:
@@ -219,6 +232,24 @@ class LetheApp(App[None]):
         self._populate_projects()
         self._show_results_placeholder()
         self.query_one("#search-input", Input).focus()
+
+    def on_unmount(self) -> None:
+        # Close anything we may have opened for retrieval. Order doesn't
+        # matter — these are independent resources.
+        if self._union_store is not None:
+            try:
+                self._union_store.close()
+            except Exception:
+                pass
+        for store in list(self._project_stores.values()):
+            try:
+                store.close()
+            except Exception:
+                pass
+        self._project_stores.clear()
+        self._union_store = None
+        self._bi_encoder = None
+        self._cross_encoder = None
 
     # ---- helpers ----------------------------------------------------------
 
@@ -333,7 +364,7 @@ class LetheApp(App[None]):
         self._hide_detail()
         try:
             scope = self._scope
-            hits = await asyncio.to_thread(_retrieve, scope, query, 10)
+            hits = await asyncio.to_thread(self._retrieve, scope, query, 10)
         except Exception as exc:  # pragma: no cover — surface errors in UI
             results_view.loading = False
             results_view.clear()
@@ -362,80 +393,97 @@ class LetheApp(App[None]):
             return
         self._show_detail(content or "(empty)")
 
+    # ---- retrieval (blocking; called via asyncio.to_thread) --------------
+    #
+    # Instance-cached so repeated searches within a scope don't rebuild the
+    # ONNX encoders or re-ATTACH DuckDB files on every query. All resources
+    # are released in on_unmount.
 
-# --- retrieval helpers (no UI deps — safe to call from asyncio.to_thread) ---
+    def _retrieve(self, scope: Scope, query: str, k: int) -> list[SearchHit]:
+        if scope.project is None:
+            return self._retrieve_union(query, k)
+        return self._retrieve_single(scope.project, query, k)
 
-
-def _retrieve(scope: Scope, query: str, k: int) -> list[SearchHit]:
-    if scope.project is None:
-        return _retrieve_union(query, k)
-    return _retrieve_single(scope.project, query, k)
-
-
-def _retrieve_single(entry: ProjectEntry, query: str, k: int) -> list[SearchHit]:
-    from lethe.cli import _open_store, load_config, resolve_paths
-
-    paths = resolve_paths(str(entry.root))
-    cfg = load_config(paths)
-    store = _open_store(paths, cfg, need_encoders=True)
-    try:
-        rows = store.retrieve(query, k=k)
-        store.save()
-    finally:
-        store.close()
-    return [
-        SearchHit(id=eid, content=content, score=float(score), project_slug=None)
-        for eid, content, score in rows
-    ]
-
-
-def _retrieve_union(query: str, k: int) -> list[SearchHit]:
-    from lethe.cli import load_config, resolve_paths
-    from lethe.encoders import (
-        OnnxBiEncoder,
-        OnnxCrossEncoder,
-        resolve_bi_encoder_name,
-        resolve_cross_encoder_name,
-    )
-    from lethe.rif import RIFConfig
-    from lethe.union_store import UnionStore
-
-    entries = _registry.load()
-    roots = [e.root for e in entries]
-    if not roots:
-        return []
-
-    cfg_source = next(
-        (r for r in roots if (r / ".lethe" / "config.toml").exists()),
-        roots[0],
-    )
-    cfg = load_config(resolve_paths(str(cfg_source)))
-    bi = OnnxBiEncoder(resolve_bi_encoder_name(cfg["bi_encoder"]))
-    xenc = OnnxCrossEncoder(resolve_cross_encoder_name(cfg["cross_encoder"]))
-    rif = RIFConfig(
-        n_clusters=int(cfg.get("n_clusters", 30)),
-        use_rank_gap=bool(cfg.get("use_rank_gap", True)),
-    )
-    union = UnionStore(
-        roots,
-        bi_encoder=bi,
-        cross_encoder=xenc,
-        dim=bi.get_embedding_dimension(),
-        rif_config=rif,
-    )
-    try:
-        hits = union.retrieve(query, k=k)
-    finally:
-        union.close()
-    return [
-        SearchHit(
-            id=h.id,
-            content=h.content,
-            score=float(h.score),
-            project_slug=h.project_slug,
+    def _ensure_encoders(self, cfg: dict) -> None:
+        if self._bi_encoder is not None and self._cross_encoder is not None:
+            return
+        from lethe.encoders import (
+            OnnxBiEncoder,
+            OnnxCrossEncoder,
+            resolve_bi_encoder_name,
+            resolve_cross_encoder_name,
         )
-        for h in hits
-    ]
+        self._bi_encoder = OnnxBiEncoder(resolve_bi_encoder_name(cfg["bi_encoder"]))
+        self._cross_encoder = OnnxCrossEncoder(resolve_cross_encoder_name(cfg["cross_encoder"]))
+
+    def _retrieve_single(self, entry: ProjectEntry, query: str, k: int) -> list[SearchHit]:
+        from lethe.cli import load_config, resolve_paths
+        from lethe.memory_store import MemoryStore
+        from lethe.rif import RIFConfig
+
+        store = self._project_stores.get(entry.slug)
+        if store is None:
+            paths = resolve_paths(str(entry.root))
+            cfg = load_config(paths)
+            self._ensure_encoders(cfg)
+            rif = RIFConfig(
+                n_clusters=int(cfg.get("n_clusters", 30)),
+                use_rank_gap=bool(cfg.get("use_rank_gap", True)),
+            )
+            store = MemoryStore(
+                paths.index,
+                bi_encoder=self._bi_encoder,
+                cross_encoder=self._cross_encoder,
+                dim=self._bi_encoder.get_embedding_dimension(),
+                rif_config=rif,
+            )
+            self._project_stores[entry.slug] = store
+        rows = store.retrieve(query, k=k)
+        # Persist RIF suppression updates — cheap, and guarantees state
+        # survives if the user quits without cleanly unmounting.
+        store.save()
+        return [
+            SearchHit(id=eid, content=content, score=float(score), project_slug=None)
+            for eid, content, score in rows
+        ]
+
+    def _retrieve_union(self, query: str, k: int) -> list[SearchHit]:
+        from lethe.cli import load_config, resolve_paths
+        from lethe.rif import RIFConfig
+        from lethe.union_store import UnionStore
+
+        if self._union_store is None:
+            entries = _registry.load()
+            roots = [e.root for e in entries]
+            if not roots:
+                return []
+            cfg_source = next(
+                (r for r in roots if (r / ".lethe" / "config.toml").exists()),
+                roots[0],
+            )
+            cfg = load_config(resolve_paths(str(cfg_source)))
+            self._ensure_encoders(cfg)
+            rif = RIFConfig(
+                n_clusters=int(cfg.get("n_clusters", 30)),
+                use_rank_gap=bool(cfg.get("use_rank_gap", True)),
+            )
+            self._union_store = UnionStore(
+                roots,
+                bi_encoder=self._bi_encoder,
+                cross_encoder=self._cross_encoder,
+                dim=self._bi_encoder.get_embedding_dimension(),
+                rif_config=rif,
+            )
+        hits = self._union_store.retrieve(query, k=k)
+        return [
+            SearchHit(
+                id=h.id,
+                content=h.content,
+                score=float(h.score),
+                project_slug=h.project_slug,
+            )
+            for h in hits
+        ]
 
 
 def _expand(scope: Scope, hit: SearchHit) -> str:

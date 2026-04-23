@@ -12,10 +12,13 @@ _read_stdin_with_timeout || true
 
 # Remove this session's header sentinel (written by user-prompt-submit.sh).
 # Best-effort — stale sentinels only suppress duplicate headers for a
-# session that's already gone, which is harmless.
+# session that's already gone, which is harmless. Uses the same id→key
+# transformation as user-prompt-submit.sh (_sanitize_session_id in common.sh)
+# so the file we rm here matches the one that was created.
 SESSION_ID="$(_json_val session_id || true)"
 if [ -n "${SESSION_ID}" ]; then
-  rm -f "${LETHE_DIR}/.session-${SESSION_ID}.header" 2>/dev/null || true
+  SESSION_KEY="$(_sanitize_session_id "${SESSION_ID}")"
+  rm -f "${LETHE_DIR}/.session-${SESSION_KEY}.header" 2>/dev/null || true
 fi
 
 if [ -n "${LETHE_CLI}" ]; then
