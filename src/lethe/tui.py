@@ -234,20 +234,8 @@ class LetheApp(App[None]):
         self.query_one("#search-input", Input).focus()
 
     def on_unmount(self) -> None:
-        # Close anything we may have opened for retrieval. Order doesn't
-        # matter — these are independent resources.
-        if self._union_store is not None:
-            try:
-                self._union_store.close()
-            except Exception:
-                pass
-        for store in list(self._project_stores.values()):
-            try:
-                store.close()
-            except Exception:
-                pass
-        self._project_stores.clear()
-        self._union_store = None
+        self._close_union_store()
+        self._close_project_stores()
         self._bi_encoder = None
         self._cross_encoder = None
 
@@ -273,6 +261,19 @@ class LetheApp(App[None]):
         view.append(ListItem(Static(text, classes="dim")))
 
     def _set_scope(self, scope: Scope) -> None:
+        # DuckDB's per-process unique file-handle lock means a `.duckdb`
+        # file can be held by either the UnionStore (via ATTACH) OR a
+        # per-project MemoryStore, but not both at once. Release the
+        # handles owned by the outgoing scope before we ever build the
+        # incoming one, otherwise the next retrieve() explodes with
+        # "Unique file handle conflict".
+        old_is_top = self._scope.project is None
+        new_is_top = scope.project is None
+        if old_is_top and not new_is_top:
+            self._close_union_store()
+        elif not old_is_top and new_is_top:
+            self._close_project_stores()
+
         self._scope = scope
         self.sub_title = scope.breadcrumb
         self.query_one("#search-label", Label).update(f"{scope.short} ▸")
@@ -280,6 +281,23 @@ class LetheApp(App[None]):
         self._populate_projects()
         self._show_results_placeholder()
         self._hide_detail()
+
+    def _close_union_store(self) -> None:
+        if self._union_store is None:
+            return
+        try:
+            self._union_store.close()
+        except Exception:
+            pass
+        self._union_store = None
+
+    def _close_project_stores(self) -> None:
+        for store in list(self._project_stores.values()):
+            try:
+                store.close()
+            except Exception:
+                pass
+        self._project_stores.clear()
 
     def _hide_detail(self) -> None:
         wrap = self.query_one("#detail-wrap")
