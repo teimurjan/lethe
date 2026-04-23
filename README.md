@@ -42,6 +42,18 @@ lethe projects list
 lethe status
 ```
 
+#### Interactive TUI
+
+```bash
+uv tool install --force 'lethe-memory[tui]'
+# or, if lethe is already installed as a uv tool:
+uv tool install --force --reinstall --with textual lethe-memory
+
+lethe tui
+```
+
+`uv tool install` does not read `[project.optional-dependencies]` from extras syntax unless quoted; the `--with textual` form is the reliable fallback. Keys inside the TUI: `↑↓` nav, `⏎` search/open, `Esc` back, `Ctrl+Q` quit. Type anywhere to jump focus to the search box.
+
 ### As a Python library
 
 ```bash
