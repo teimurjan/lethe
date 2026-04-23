@@ -2,7 +2,7 @@
 
 Thin dispatcher over :class:`~lethe.memory_store.MemoryStore` and
 :class:`~lethe.markdown_store.MarkdownStore`. Designed to be called as a
-subprocess from the Claude Code plugin (hooks + memory-recall skill), but
+subprocess from the Claude Code plugin (hooks + recall / recall-global skills), but
 also usable directly:
 
     lethe index                 # reindex .lethe/memory
@@ -589,6 +589,22 @@ def cmd_projects_prune(args: argparse.Namespace) -> int:  # noqa: ARG001
     return 0
 
 
+def cmd_tui(args: argparse.Namespace) -> int:  # noqa: ARG001
+    try:
+        from lethe import tui
+    except ImportError as exc:
+        if "textual" in str(exc).lower():
+            print(
+                "lethe tui requires the 'tui' extra. Install with:\n"
+                "    uv pip install -e '.[tui]'\n"
+                "    # or, from PyPI: pip install 'lethe-memory[tui]'",
+                file=sys.stderr,
+            )
+            return 2
+        raise
+    return tui.run()
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
@@ -663,6 +679,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_enrich.add_argument("--model", default="claude-haiku-4-5")
     p_enrich.add_argument("--concurrency", type=int, default=5)
     p_enrich.set_defaults(func=cmd_enrich)
+
+    p_tui = sub.add_parser(
+        "tui",
+        help="Interactive TUI: browse projects, search within/across them. Needs the 'tui' extra.",
+    )
+    p_tui.set_defaults(func=cmd_tui, requires_lock=False)
 
     return p
 

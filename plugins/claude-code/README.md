@@ -23,8 +23,8 @@ After restart, a `.lethe/` directory will appear in each project's git root on f
 
 | Event | Behavior |
 |-------|----------|
-| `SessionStart` | Appends `## Session HH:MM` heading; injects the last ~30 lines from the 2 most recent daily files as additional context. |
-| `UserPromptSubmit` | Emits a `[lethe] Memory available` hint so Claude can invoke the `memory-recall` skill. |
+| `SessionStart` | Injects the last ~30 lines from the 2 most recent daily files as additional context. |
+| `UserPromptSubmit` | On the first prompt of a session, appends a `## Session HH:MM` heading; emits a `[lethe] Memory available` hint so Claude can invoke the `recall` (this project) or `recall-global` (all projects) skill. |
 | `Stop` (async) | Summarizes the latest turn via `claude -p --model haiku`, appends bullets + a progressive-disclosure anchor to today's file, and reindexes. |
 | `SessionEnd` (async) | Flushes suppression state. |
 

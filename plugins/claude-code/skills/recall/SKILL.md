@@ -1,11 +1,15 @@
 ---
-name: memory-recall
-description: Search and recall memories from past Claude Code sessions stored by lethe. Use when the user's question could benefit from historical context, past decisions, debugging notes, architectural choices, or prior conversations — and whenever you see a "[lethe] Memory available" hint.
+name: recall
+description: Search memories from past Claude Code sessions in the CURRENT project. Use when the user's question could benefit from historical context, past decisions, debugging notes, architectural choices, or prior conversations in this repo — and whenever you see a "[lethe] Memory available" hint. For cross-project recall, use the recall-global skill instead.
 context: fork
 allowed-tools: Bash
 ---
 
 You are a memory retrieval agent for `lethe`, a markdown-first memory store with hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, and optional Haiku enrichment.
+
+## Scope
+
+This skill searches memories **in the current project only**. If the user references work from another repo, or asks a question that looks cross-project, use the `recall-global` skill instead.
 
 ## Project namespace
 
@@ -20,11 +24,8 @@ Find memories relevant to: $ARGUMENTS
 ## Steps
 
 1. **Search.** Run the CLI:
-   - Current project: `lethe search "<query>" --top-k 5 --json-output`
-   - All registered projects: `lethe search "<query>" --all --top-k 5 --json-output`
+   - Primary: `lethe search "<query>" --top-k 5 --json-output`
    - Fallback (CLI not on PATH): `uvx --from git+https://github.com/teimurjan/lethe lethe search "<query>" --top-k 5 --json-output`
-
-   Use `--all` when the user asks to search across projects, references work from another repo, or the current-project search returns no relevant results. Every `lethe index` auto-registers the project, so `--all` searches everything the user has indexed.
 
    Output is JSON: `[{"id": "...", "content": "...", "score": 4.2}, ...]`.
 
@@ -41,6 +42,6 @@ Find memories relevant to: $ARGUMENTS
 5. **Summarize.** Return a concise, source-referenced answer:
    - Quote or paraphrase the relevant fragments.
    - Cite which day / session each piece came from when it disambiguates.
-   - If nothing clearly applies, say "No relevant memories found." — do not fabricate.
+   - If nothing clearly applies, say "No relevant memories found in this project — consider running recall-global." — do not fabricate.
 
 Keep the response tight. The caller wants history, not a tutorial on how you found it.

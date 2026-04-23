@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Prints a stable per-project collection name derived from the git root.
-# Used by the memory-recall skill so the LLM sees which project's memory
-# it is searching.
+# Used by the recall / recall-global skills so the LLM sees which project's
+# memory it is searching.
 
 set -eu
 set -o pipefail

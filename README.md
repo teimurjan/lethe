@@ -22,8 +22,8 @@ Most memory tools are static caches - you put strings in, you get strings back b
 What happens after install:
 
 - Every session is summarized into `.lethe/memory/YYYY-MM-DD.md` per project. Plain markdown, edit by hand if you want.
-- Claude sees recent memory at session start and calls the `memory-recall` skill when a past session would help.
-- Ask "check across projects" or pass `--all` to search every registered project at once.
+- Claude sees recent memory at session start and calls the `recall` skill when a past session in this project would help.
+- For cross-repo context, the `recall-global` skill searches every registered project at once (uses `lethe search --all` under the hood).
 
 Update: `uv tool install --upgrade lethe-memory && /reload-plugins`
 

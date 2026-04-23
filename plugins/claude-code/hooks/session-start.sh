@@ -12,20 +12,14 @@ _read_stdin_with_timeout || true
 _log "session-start: git_root=${LETHE_GIT_ROOT}"
 
 TODAY="$(date +%Y-%m-%d)"
-NOW="$(date +%H:%M)"
 TODAY_FILE="${LETHE_MEMORY_DIR}/${TODAY}.md"
 
 # Ensure today's file exists with a header on first write of the day.
+# Session headings are written lazily by user-prompt-submit.sh so empty
+# sessions (user starts Claude Code but never types) don't leave dangling
+# `## Session HH:MM` markers in the markdown log.
 if [ ! -f "${TODAY_FILE}" ]; then
   printf '# %s\n\n' "${TODAY}" >"${TODAY_FILE}"
-fi
-
-# Only add a session heading if today's file doesn't already end with the
-# same heading — SessionStart can fire repeatedly (/clear, /reload-plugins,
-# compaction) and we don't want back-to-back duplicate headers.
-LAST_HEADING="$(grep -E '^## Session ' "${TODAY_FILE}" 2>/dev/null | tail -n 1 || true)"
-if [ "${LAST_HEADING}" != "## Session ${NOW}" ]; then
-  printf '\n## Session %s\n' "${NOW}" >>"${TODAY_FILE}"
 fi
 
 # Collect context from the 2 most recent daily files (including today).
