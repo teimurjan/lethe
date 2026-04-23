@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.3.0...lethe-memory-v0.4.0) (2026-04-23)
+
+
+### Features
+
+* Lethe tui, split recall skill, lazy session headers ([#7](https://github.com/teimurjan/lethe/issues/7)) ([b5799b3](https://github.com/teimurjan/lethe/commit/b5799b3089c94f48828c98990f417db63d305db0))
+
 ## [0.3.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.2.2...lethe-memory-v0.3.0) (2026-04-17)
 
 
