@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.4.2...lethe-memory-v0.5.0) (2026-04-24)
+
+
+### Features
+
+* Tui live-expand on highlight, fix duckdb conflict and clipped search input ([2159499](https://github.com/teimurjan/lethe/commit/21594994fa30e4d34eb1e159d2b204248839353d))
+
 ## [0.4.2](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.4.1...lethe-memory-v0.4.2) (2026-04-24)
 
 
