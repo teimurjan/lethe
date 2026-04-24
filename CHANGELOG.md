@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.5.1...lethe-memory-v0.6.0) (2026-04-24)
+
+
+### Features
+
+* Regex BM25 tokenizer (+3.68pp NDCG, +6.79pp Recall) ([#17](https://github.com/teimurjan/lethe/issues/17)) ([c17828c](https://github.com/teimurjan/lethe/commit/c17828ce3eeb7178377934c7a9c33af454cfddc8))
+
 ## [0.5.1](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.5.0...lethe-memory-v0.5.1) (2026-04-24)
 
 
