@@ -88,14 +88,14 @@ store.close()
 
 Numbers on the full 199,509-turn LongMemEval S corpus, **turn-level retrieval, NDCG@10, no leakage**. Most memory-tool benchmarks use ~50 sessions at session granularity - a ~2000× easier task. Those 99% numbers don't translate to this setup.
 
-| Stage | NDCG@10 | notes |
-|---|---|---|
-| Hybrid BM25 + vector (RRF) | 0.241 | basic retrieval (most popular) |
-| + cross-encoder reranking | 0.382 | +59% from semantic reranking |
-| + clustered+gap RIF (checkpoint 13) | **0.312** | +6.5% from retrieval-induced forgetting (paired permutation p<0.002, 95% CI excludes zero) |
-| + LLM enrichment, on covered queries | **0.473** | +21% on the 75 queries where the answer turn was Haiku-enriched |
+| Stage | NDCG@10 | Relative gain vs previous row | notes |
+|---|---|---|---|
+| Hybrid BM25 + vector (RRF) | 0.241 | — | basic retrieval (most popular) |
+| + cross-encoder reranking | 0.382 | +59% | semantic reranking on the hybrid pool |
+| + clustered+gap RIF (checkpoint 13) | pending | +6.5%¹ | retrieval-induced forgetting (paired permutation p<0.002, 95% CI excludes zero) |
+| + LLM enrichment, on covered queries | pending | +21%¹ | on the 75 queries where the answer turn was Haiku-enriched |
 
-The first two rows were re-measured on 2026-04-24 after the BM25 tokenizer upgrade (`lower().split()` → regex word-tokenizer, +3.68pp NDCG@10 on the ablation sweep). RIF and enrichment rows reflect earlier measurements on the previous tokenizer — expected to improve on re-measurement. See [BENCHMARKS.md](https://github.com/teimurjan/lethe/blob/main/BENCHMARKS.md) for the live numbers and [BENCHMARKS_BM25_TOKENIZER.md](https://github.com/teimurjan/lethe/blob/main/benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md) for the tokenizer ablation.
+¹ Relative gain measured on the previous BM25 tokenizer (`lower().split()`) where the stack topped out at 0.296 / 0.316 / 0.473. The absolute NDCG numbers for RIF and enrichment are being re-measured on the new regex tokenizer; mechanism's relative contribution is expected to hold (RIF is orthogonal to BM25 tokenization). See [BENCHMARKS.md](https://github.com/teimurjan/lethe/blob/main/BENCHMARKS.md) for the live numbers and [BENCHMARKS_BM25_TOKENIZER.md](https://github.com/teimurjan/lethe/blob/main/benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md) for the tokenizer ablation.
 
 **Scope.** The RIF gain is workload-specific. The mechanism targets the chronic-false-positive pattern in a single user's long-term conversation memory. On NFCorpus (a non-conversational medical IR benchmark) it doesn't transfer: three of four variants significantly regress. We diagnose this in the arXiv paper (corpus saturation + workload mismatch) and scope the claim to long-term conversational memory. Use lethe for what it's good at; don't expect it to help on general ad-hoc retrieval.
 
