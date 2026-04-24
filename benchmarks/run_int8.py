@@ -13,7 +13,7 @@ Currently evaluates:
     - sentence-transformers/all-MiniLM-L6-v2 (fp32, current default)
     - BAAI/bge-small-en-v1.5              (int8, qdrant's `-onnx-q` variant)
 
-Run: ``uv run python benchmarks/bench_int8.py``
+Run: ``uv run python benchmarks/run_int8.py``
 """
 from __future__ import annotations
 
@@ -39,8 +39,8 @@ from benchmarks._lib.metrics import ndcg_at_k, recall_at_k
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
-RESULTS = ROOT / "benchmarks" / "results" / "bench_int8.md"
-EMB_CACHE = ROOT / "benchmarks" / "results" / "bench_int8_embeds"
+RESULTS = ROOT / "benchmarks" / "results" / "BENCHMARKS_INT8.md"
+EMB_CACHE = ROOT / "benchmarks" / "results" / "int8_embeds"
 
 MODELS = [
     ("sentence-transformers/all-MiniLM-L6-v2", "MiniLM-L6-v2 (fp32)"),

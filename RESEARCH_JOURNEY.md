@@ -396,7 +396,7 @@ The 4.9× win on synthetic text inverts to a ~4× regression on real conversatio
 
 We did not complete the NDCG arm (killed at ~20% of corpus re-embed once the throughput inversion made the speed premise moot). The quality question is open, but there's no speed incentive to answer it on this workload.
 
-Reproducer: `benchmarks/bench_int8.py`.
+Reproducer: `benchmarks/run_int8.py`. Raw table: `benchmarks/results/BENCHMARKS_INT8.md`.
 
 **2. CoreML execution provider on Apple Silicon.** Hypothesis: route onnxruntime through the Neural Engine / Metal via `providers=["CoreMLExecutionProvider", "CPUExecutionProvider"]`.
 
@@ -430,7 +430,7 @@ LongMemEval S, 100-query random sample (seed 0), full production pipeline (BM25 
 
 `k_deep=60` is cheaper still but costs 1.1 pp NDCG, above the noise floor — rejected. If a user ever reports a query pattern where 100 is insufficient, the knob is exposed on the `MemoryStore` / `UnionStore` constructors.
 
-Reproducer: `benchmarks/bench_deep_pass.py`. Raw table: `benchmarks/results/bench_deep_pass.md`.
+Reproducer: `benchmarks/run_deep_pass.py`. Raw table: `benchmarks/results/BENCHMARKS_DEEP_PASS.md`.
 
 ---
 
