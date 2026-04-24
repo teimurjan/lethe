@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.5.1](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.5.0...lethe-memory-v0.5.1) (2026-04-24)
+
+
+### Bug Fixes
+
+* Perf micro-wins in the index and save hot paths ([#15](https://github.com/teimurjan/lethe/issues/15)) ([a7fcf49](https://github.com/teimurjan/lethe/commit/a7fcf49c67e2684902f533179d97e225bd0dd9e4))
+
 ## [0.5.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.4.2...lethe-memory-v0.5.0) (2026-04-24)
 
 
