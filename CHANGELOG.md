@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.2](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.4.1...lethe-memory-v0.4.2) (2026-04-24)
+
+
+### Bug Fixes
+
+* Lower adaptive deep-pass k_deep from 200 to 100 ([#12](https://github.com/teimurjan/lethe/issues/12)) ([5e8c1db](https://github.com/teimurjan/lethe/commit/5e8c1db87ca44a915493f27cfe31a7811791c311))
+
 ## [0.4.1](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.4.0...lethe-memory-v0.4.1) (2026-04-23)
 
 
