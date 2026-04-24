@@ -16,6 +16,7 @@ behavior matches shipped code.
 from __future__ import annotations
 import os, re, sys, time, json, warnings
 from pathlib import Path
+from typing import Callable
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
 warnings.filterwarnings("ignore")
@@ -79,7 +80,7 @@ def tok_regex_stem(text: str) -> list[str]:
     return [_STEMMER.stem(t) for t in _WORD_RE.findall(text.lower()) if t not in STOP]
 
 
-TOKENIZERS: dict[str, callable] = {
+TOKENIZERS: dict[str, Callable[[str], list[str]]] = {
     "baseline (lower+split)": tok_baseline,
     "regex words": tok_regex_words,
     "regex + stopwords": tok_regex_stop,
@@ -177,6 +178,14 @@ def sweep_one(name: str, tok_fn) -> dict:
         if triggered: n_triggered += 1
         ndcgs.append(ndcg_at_k(top10, qr, 10))
         recalls.append(recall_at_k(top10, qr, 10))
+    if not ndcgs:
+        # Every sampled query was filtered out (empty qrels, etc.).
+        # Don't crash on np.percentile([]) or the trig division —
+        # surface the gap so the user reruns with a saner sample.
+        raise RuntimeError(
+            f"sweep '{name}': no queries with qrels in the sampled set "
+            f"(size={SAMPLE}). Check longmemeval_qrels.json or raise SAMPLE."
+        )
     lat = np.array(latencies)
     wall = time.monotonic() - wall_t0
     ndcg = float(np.mean(ndcgs)); rec = float(np.mean(recalls))

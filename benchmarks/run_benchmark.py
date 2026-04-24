@@ -21,7 +21,7 @@ import numpy as np
 from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 from benchmarks._lib.metrics import ndcg_at_k, recall_at_k
 from lethe.encoders import OnnxCrossEncoder  # production rerank runtime
-from lethe.vectors import _tokenize  # production BM25 tokenizer
+from lethe.vectors import tokenize_bm25  # production BM25 tokenizer
 
 DATA = Path("data")
 BENCHMARKS_MD = Path("BENCHMARKS.md")
@@ -81,7 +81,7 @@ def main() -> None:
     index.add(corpus_embs)
 
     print("Building BM25 index...", flush=True)
-    tokenized = [_tokenize(corpus_content.get(cid, "")) for cid in corpus_ids]
+    tokenized = [tokenize_bm25(corpus_content.get(cid, "")) for cid in corpus_ids]
     bm25 = BM25Okapi(tokenized)
 
     print("Loading cross-encoder (ONNX)...", flush=True)
@@ -104,7 +104,7 @@ def main() -> None:
 
     # 2. BM25 only top-10
     def bm25_only(qi, qe, qt):
-        scores = bm25.get_scores(_tokenize(qt))
+        scores = bm25.get_scores(tokenize_bm25(qt))
         top = np.argsort(scores)[::-1][:10]
         return [corpus_ids[i] for i in top]
 
@@ -118,7 +118,7 @@ def main() -> None:
     def hybrid_rrf(qi, qe, qt):
         D, I = index.search(qe.reshape(1, -1), 30)
         vec_ids = [corpus_ids[i] for i in I[0] if i >= 0]
-        scores = bm25.get_scores(_tokenize(qt))
+        scores = bm25.get_scores(tokenize_bm25(qt))
         bm25_ids = [corpus_ids[i] for i in np.argsort(scores)[::-1][:30]]
         rrf_scores: dict[str, float] = {}
         for rank, cid in enumerate(vec_ids):
@@ -153,7 +153,7 @@ def main() -> None:
     def lethe_full(qi, qe, qt):
         D, I = index.search(qe.reshape(1, -1), 30)
         vec_ids = [corpus_ids[i] for i in I[0] if i >= 0]
-        scores = bm25.get_scores(_tokenize(qt))
+        scores = bm25.get_scores(tokenize_bm25(qt))
         bm25_ids = [corpus_ids[i] for i in np.argsort(scores)[::-1][:30]]
         all_ids = list(dict.fromkeys(vec_ids + bm25_ids))
         pairs = [(qt, corpus_content.get(c, "")) for c in all_ids]

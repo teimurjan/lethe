@@ -13,8 +13,14 @@ from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 _WORD_RE = re.compile(r"[A-Za-z0-9_]+")
 
 
-def _tokenize(text: str) -> list[str]:
+def tokenize_bm25(text: str) -> list[str]:
     """Lowercase regex word-tokenizer for BM25.
+
+    The canonical BM25 tokenizer for lethe. Used by ``VectorIndex`` at
+    both build and query time, and by the benchmark scripts so every
+    measurement uses the same rules as production. Kept as a
+    public-style name (no leading underscore) because it has stable
+    callers outside this module.
 
     Replaces the earlier ``text.lower().split()`` which kept
     punctuation glued to adjacent words (e.g. ``"hello,"`` never
@@ -66,7 +72,7 @@ class VectorIndex:
         if len(embeddings) > 0:
             self._faiss.add(embeddings.astype(np.float32))
         # BM25
-        tokenized = [_tokenize(c) for c in contents]
+        tokenized = [tokenize_bm25(c) for c in contents]
         self._bm25 = BM25Okapi(tokenized) if tokenized else None
 
     def search_vector(
@@ -99,7 +105,12 @@ class VectorIndex:
         """Return top-k entry IDs by BM25 keyword match."""
         if self._bm25 is None or not query_text:
             return []
-        tokens = _tokenize(query_text)
+        tokens = tokenize_bm25(query_text)
+        if not tokens:
+            # Empty token list (punctuation-only query, etc.) —
+            # BM25Okapi.get_scores([]) returns all-zero scores and the
+            # top-k would be arbitrary. Treat it as a no-match query.
+            return []
         scores = self._bm25.get_scores(tokens)
         top_idx = _top_k_desc(scores, k)
         return [self._ids[i] for i in top_idx if i < len(self._ids)]
@@ -108,7 +119,9 @@ class VectorIndex:
         """Return top-k (entry_id, bm25_score) by keyword match."""
         if self._bm25 is None or not query_text:
             return []
-        tokens = _tokenize(query_text)
+        tokens = tokenize_bm25(query_text)
+        if not tokens:
+            return []
         scores = self._bm25.get_scores(tokens)
         top_idx = _top_k_desc(scores, k)
         return [
@@ -149,7 +162,7 @@ class VectorIndex:
             self._faiss = faiss.read_index(str(index_path))
         self._ids = list(ids)
         self._contents = list(contents)
-        tokenized = [_tokenize(c) for c in contents]
+        tokenized = [tokenize_bm25(c) for c in contents]
         self._bm25 = BM25Okapi(tokenized) if tokenized else None
 
     @property

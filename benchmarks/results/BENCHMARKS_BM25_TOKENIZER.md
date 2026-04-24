@@ -27,6 +27,6 @@ The research journey focused on mechanism changes (RIF, clusters, enrichment). B
 
 ## Shipping
 
-Adopted regex tokenizer as the default. Build-time and retrieval-time tokenization share one helper (`_tokenize`) in `lethe.vectors` so corpus and query paths can't drift.
+Adopted regex tokenizer as the default. Build-time and retrieval-time tokenization share one helper (`tokenize_bm25`) in `lethe.vectors` so corpus and query paths can't drift.
 
 Reproducer: `benchmarks/run_bm25_tokenizer.py`.
