@@ -503,3 +503,88 @@ def test_global_rif_unchanged_when_n_clusters_zero(
     store.retrieve("alpha", k=2)
     # Global path: cluster centroids never computed.
     assert store._cluster_centroids is None
+
+
+# ---------- perf micro-wins (contract tests) ----------
+
+def test_bulk_add_rebuilds_index_once(
+    tmp_store_path: Path, mock_bi_encoder, mock_cross_encoder, monkeypatch,
+) -> None:
+    """Inside ``with store.bulk_add()`` the FAISS+BM25 rebuild is
+    deferred — one rebuild on exit regardless of N adds."""
+    store = MemoryStore(
+        path=tmp_store_path, bi_encoder=mock_bi_encoder,
+        cross_encoder=mock_cross_encoder, dim=16,
+    )
+    calls = {"n": 0}
+    real_rebuild = store._rebuild_index
+
+    def counting_rebuild() -> None:
+        calls["n"] += 1
+        real_rebuild()
+
+    monkeypatch.setattr(store, "_rebuild_index", counting_rebuild)
+
+    with store.bulk_add():
+        for i in range(20):
+            store.add(f"entry {i} unique content")
+    assert calls["n"] == 1, "bulk_add must rebuild exactly once on exit"
+    # After bulk insert, retrieval still works.
+    assert store.retrieve("entry 7", k=3)
+
+
+def test_save_skips_embeddings_when_only_retrieve_happened(
+    tmp_store_path: Path, mock_bi_encoder, mock_cross_encoder,
+) -> None:
+    """``save()`` must not rewrite embeddings.npz when nothing was
+    added/deleted — the file's mtime should be unchanged across a
+    retrieve-only save cycle."""
+    store = MemoryStore(
+        path=tmp_store_path, bi_encoder=mock_bi_encoder,
+        cross_encoder=mock_cross_encoder, dim=16,
+    )
+    store.add("first entry about cats")
+    store.add("second entry about dogs")
+    store.save()  # establishes embeddings.npz baseline
+
+    emb_file = tmp_store_path / "embeddings.npz"
+    assert emb_file.exists()
+    baseline_mtime_ns = emb_file.stat().st_mtime_ns
+
+    # Retrieve mutates RIF / affinity / step but not structure.
+    store.retrieve("cats", k=1)
+    store.save()
+
+    assert emb_file.stat().st_mtime_ns == baseline_mtime_ns, (
+        "retrieve-only save should not rewrite embeddings.npz"
+    )
+
+    # But an add() does mark structure dirty → next save rewrites.
+    store.add("third entry about birds")
+    store.save()
+    assert emb_file.stat().st_mtime_ns > baseline_mtime_ns
+
+
+def test_retrieve_stops_buffering_queries_after_clusters_freeze(
+    tmp_store_path: Path, mock_bi_encoder, mock_cross_encoder,
+) -> None:
+    """Once cluster centroids are built, the query-embedding buffer
+    must stop growing — otherwise query_embeddings.npz grows unbounded
+    on each save() for no benefit."""
+    store = MemoryStore(
+        path=tmp_store_path, bi_encoder=mock_bi_encoder,
+        cross_encoder=mock_cross_encoder, dim=16,
+        rif_config=RIFConfig(n_clusters=2),  # minimum → fast freeze
+    )
+    store._min_cluster_queries = 3  # force a quick freeze
+    for i in range(5):
+        store.add(f"entry {i} alpha bravo")
+    # Fire enough queries to trigger cluster build.
+    for _ in range(store._min_cluster_queries):
+        store.retrieve("alpha bravo", k=1)
+    assert store._cluster_centroids is not None
+    frozen_buffer_len = len(store._query_emb_buffer)
+    # Subsequent queries must not grow the buffer.
+    for _ in range(10):
+        store.retrieve("alpha bravo", k=1)
+    assert len(store._query_emb_buffer) == frozen_buffer_len
