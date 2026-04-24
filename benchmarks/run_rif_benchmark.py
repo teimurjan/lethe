@@ -27,13 +27,14 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 import faiss
 import numpy as np
 from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
-from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 
 from benchmarks._lib.metrics import ndcg_at_k
+from lethe.encoders import OnnxCrossEncoder  # production rerank runtime
 from lethe.rif import RIFConfig, apply_suppression_penalty, competition_strength, update_suppression
+from lethe.vectors import tokenize_bm25  # production BM25 tokenizer
 
 DATA = Path("data")
-RESULTS = Path("BENCHMARKS_RIF.md")
+RESULTS = Path("benchmarks/results/BENCHMARKS_RIF.md")
 
 
 def search_hybrid_scored(
@@ -48,7 +49,7 @@ def search_hybrid_scored(
     D, I = index.search(query_emb.reshape(1, -1), k)
     vec_results = [(corpus_ids[i], float(D[0][rank])) for rank, i in enumerate(I[0]) if i >= 0]
 
-    tokens = query_text.lower().split()
+    tokens = tokenize_bm25(query_text)
     scores = bm25.get_scores(tokens)
     top_idx = np.argsort(scores)[::-1][:k]
     bm25_results = [(corpus_ids[i], float(scores[i])) for i in top_idx]
@@ -81,10 +82,11 @@ def main() -> None:
     with open(DATA / "longmemeval_queries.json") as f:
         query_texts = json.load(f)
 
-    xenc = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2")
+    xenc = OnnxCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2")
+    _ = xenc.predict([("warm", "warm")])  # JIT-warm
     index = faiss.IndexFlatIP(384)
     index.add(corpus_embs)
-    tokenized = [corpus_content.get(cid, "").lower().split() for cid in corpus_ids]
+    tokenized = [tokenize_bm25(corpus_content.get(cid, "")) for cid in corpus_ids]
     bm25 = BM25Okapi(tokenized)
     qid_to_idx = {q: i for i, q in enumerate(query_ids)}
 

@@ -36,6 +36,8 @@
 
 \begin{abstract}
 We study retrieval quality for long-term conversational memory, where an agent must recall information from a corpus of hundreds of thousands of turns accumulated over arbitrary time. A standard hybrid pipeline combining BM25, dense vector retrieval, and cross-encoder reranking forms a strong baseline on this task, but exhibits a characteristic failure mode: certain irrelevant entries are repeatedly selected as false positives for semantically similar queries. We propose \emph{clustered retrieval-induced forgetting} (clustered RIF), a cue-dependent suppression mechanism adapted from the cognitive-psychology literature on memory retrieval. After each retrieval, candidates that were highly ranked by the bi-encoder stage but rejected by the cross-encoder accumulate a suppression score, scoped per query cluster. Future retrievals in the same cluster apply these scores as penalties before reranking. We further refine the suppression rule with a \emph{rank-gap} formula that penalizes only entries whose initial rank exceeded their post-rerank rank, avoiding penalties on close losers. On LongMemEval S (199{,}509 turns, 500 evaluation queries), clustered RIF yields $+5.8\%$ NDCG@10 and $+6.8\%$ recall@30 over the static hybrid baseline with a paired permutation $p < 0.002$; an additional rank-gap refinement improves the point estimate to $+6.5\%$ NDCG and $+9.5\%$ recall, with the NDCG portion of that refinement not individually significant at $n=500$. On NFCorpus, a non-conversational medical IR benchmark, the same mechanism does not transfer: three of four variants significantly regress against the baseline, and the best variant is statistically indistinguishable from it. We argue this is evidence that the mechanism is workload-specific: it targets the chronic-false-positive pattern characteristic of a single user's long-term conversation stream, not general ad-hoc retrieval. A behavior-level decomposition indicates the improvement comes entirely from reducing cross-topic retrieval errors (\emph{wrong\_family}) rather than from within-session discrimination. We release an open-source implementation and seventeen checkpoints of experimental logs, including negative results for direct embedding mutation and sparse distributed memory.
+
+\noindent\emph{Note added 2026-04-24:} The open-source BM25 tokenizer was subsequently upgraded from \texttt{text.lower().split()} to a regex word-tokenizer, which strengthens the hybrid baseline and shrinks clustered RIF's relative gain to $+3.4\%$ NDCG@10 / $+4.9\%$ Recall@30 (absolute numbers both improve: $0.3152 \to 0.3422$ NDCG, $0.4494 \to 0.4972$ Recall). The central qualitative claim — clustered suppression is load-bearing, global is not — survives and is in fact strengthened (global RIF is flat on the new tokenizer). See the post-submission update section before Reproducibility for the full table and what was not re-verified.
 \end{abstract}
 
 \section{Introduction}
@@ -340,6 +342,46 @@ Cue-dependent retrieval-induced forgetting, implemented as per-cluster suppressi
 The mechanism is workload-specific. On NFCorpus, a medical IR benchmark without the chronic-false-positive structure of conversational memory, three of four variants significantly regress against the baseline and the fourth is indistinguishable from it. We trace the failure to corpus saturation (the same fixed query pool produces cumulative suppression over a small corpus) and workload mismatch (queries in ad-hoc IR do not share recurring information needs in the way a single user's conversation stream does). Behavior-level analysis on the conversational setting shows that RIF's gain is specifically cross-topic noise reduction rather than general quality improvement, which bounds the scope in which the mechanism is applicable.
 
 The contribution is framed narrowly: clustered RIF is the retrieval-only best component of a larger system. Several other components of the full pipeline (write-time LLM enrichment, lifecycle-based index compaction, multi-project federation via read-only DuckDB ATTACH) are outside the scope of this paper and are documented in the open-source repository.
+
+\section*{Post-submission update: BM25 tokenizer (2026-04-24)}
+\label{sec:post-update}
+
+After the initial draft, a code review flagged that the BM25 tokenizer in the open-source implementation was \texttt{text.lower().split()}, which keeps trailing punctuation glued to words: \texttt{"MongoDB?"} and \texttt{"MongoDB"} tokenize differently and no BM25 hit fires. We replaced the tokenizer with a regex word-tokenizer (\texttt{[A-Za-z0-9\_]+}) and re-ran the main LongMemEval measurements. An ablation sweep over four tokenizers (plain regex, regex + stopword removal, regex + Porter stemming) showed that the plain-regex variant is Pareto-best on NDCG@10, Recall@10, and BM25 build time; stopword removal regresses and Porter stemming over-conflates at $17\times$ the build cost. The change is punctuation handling only.
+
+The tokenizer swap is a larger single-lever quality change than any of the mechanisms studied in this paper. We report the updated headline numbers here for transparency:
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcccc}
+\toprule
+& \multicolumn{2}{c}{\texttt{lower().split()}} & \multicolumn{2}{c}{regex \texttt{[A-Za-z0-9\_]+}} \\
+\cmidrule(lr){2-3} \cmidrule(lr){4-5}
+System & NDCG@10 & Recall@30 & NDCG@10 & Recall@30 \\
+\midrule
+BM25 only (top-10) & 0.2420 & --- & 0.3171 & --- \\
+Hybrid BM25 + vector (RRF) & 0.2171 & --- & 0.2408 & --- \\
+Baseline (hybrid + xenc, no RIF) & 0.2960 & 0.4103 & \textbf{0.3311} & \textbf{0.4739} \\
+Clustered RIF, $K=30$ (rank-gap) & 0.3152 ($+6.5\%$) & 0.4494 ($+9.5\%$) & \textbf{0.3422 ($+3.4\%$)} & \textbf{0.4972 ($+4.9\%$)} \\
+Clustered RIF, $K=10$ (rank-gap) & --- & --- & 0.3444 ($+4.0\%$) & 0.4917 ($+3.8\%$) \\
+Global RIF (rank-gap) & 0.3038 ($+2.6\%$) & 0.4258 ($+5.3\%$) & 0.3369 ($+1.8\%$) & 0.4741 ($+0.0\%$) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Three observations on how this re-measurement affects the paper's claims:
+
+\paragraph{Absolute numbers improved across the board.} Every configuration, RIF-equipped or not, gains from the regex tokenizer. The clustered-RIF headline moves $0.3152 \to 0.3422$ NDCG@10 and $0.4494 \to 0.4972$ Recall@30 — still the highest-performing retrieval-only variant.
+
+\paragraph{Relative gains shrink, as expected.} Clustered RIF $K=30$'s NDCG gain went $+6.5\% \to +3.4\%$ and Recall gain $+9.5\% \to +4.9\%$. This is the predicted consequence of a stronger baseline: part of the vocabulary-mismatch failure mode that RIF was compensating for is now handled upstream by the tokenizer. The absolute effect size did not collapse.
+
+\paragraph{The qualitative claim strengthens, it does not weaken.} The central claim of this paper is that \emph{cue-dependent} (clustered) suppression is load-bearing, and global suppression is not. The new measurement tightens that claim: global RIF (rank-gap) is now essentially flat ($+1.8\%$ NDCG, with Recall@30 at $+0.0\%$), while clustered RIF remains well above the baseline on both metrics. The gap between clustered and global is \emph{larger} on the new tokenizer, not smaller.
+
+\paragraph{What has not been re-verified.} The paired permutation tests, bootstrap confidence intervals, and Bonferroni corrections reported in Section~\ref{sec:results} were computed on the \texttt{lower().split()} tokenizer and have not been re-run. Given that the absolute RIF effect size on the regex tokenizer ($+0.0270$ NDCG, $+0.0478$ Recall@30) is similar to or larger than the old effect size ($+0.0192$ NDCG, $+0.0391$ Recall@30) and the variance of individual-query NDCG is bounded by the metric, we expect the main clustered-RIF claim to survive re-testing. The pairwise rank-gap-over-uniform test was already not individually significant at $n=500$ on the old tokenizer, and we do not revisit that question here.
+
+\paragraph{NFCorpus generalization test (Section~\ref{sec:nfcorpus}) not re-run.} NFCorpus is an out-of-domain replication of the mechanism, not a dependent claim — its role in the paper is to bound the scope of the LongMemEval result. We did not re-run it with the new tokenizer. The original negative result (three of four variants significantly regress) is about the mechanism's transfer behavior, not about absolute NDCG, and the tokenizer change is not expected to flip the direction of the effect.
+
+Raw tables for the re-measured LongMemEval results are in \texttt{benchmarks/results/BENCHMARKS\_BM25\_TOKENIZER.md} (tokenizer ablation) and \texttt{benchmarks/results/BENCHMARKS\_RIF\_CLUSTERED.md} (clustered RIF sweep on the new tokenizer). Reproducer scripts: \texttt{benchmarks/run\_bm25\_tokenizer.py} and \texttt{benchmarks/run\_rif\_clustered.py}.
 
 \section*{Reproducibility}
 

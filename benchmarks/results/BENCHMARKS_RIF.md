@@ -6,14 +6,14 @@ Retrieval-Induced Forgetting: principled competitor suppression.
 
 **RIF config**: rate=0.1, reinforce=0.05, alpha=0.3, decay=0.005
 
-Date: 2026-04-13
+Date: 2026-04-24
 
 | Metric | Static | RIF | Δ |
 |--------|--------|-----|---|
-| NDCG@10 | 0.2960 | 0.3020 | +2.0% |
-| Recall@30 | 0.4103 | 0.4196 | +2.3% |
+| NDCG@10 | 0.3311 | 0.3369 | +1.8% |
+| Recall@30 | 0.4739 | 0.4741 | +0.0% |
 
-Suppression: 11254 entries suppressed, 0 heavily (>0.5)
+Suppression: 10864 entries suppressed, 0 heavily (>0.5)
 
 ## Mechanism
 

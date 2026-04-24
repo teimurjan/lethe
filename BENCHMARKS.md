@@ -39,34 +39,37 @@ RIF is a learned mechanism — needs usage history to accumulate suppression. Al
 
 ### Retrieval baselines
 
-200-query eval sample, checkpoint 10 audit:
+200-query eval sample. Current numbers use the regex BM25 tokenizer (`[A-Za-z0-9_]+`), which replaced `lower().split()` on 2026-04-24. See [BENCHMARKS_BM25_TOKENIZER.md](results/BENCHMARKS_BM25_TOKENIZER.md) for the ablation — the change stripped trailing punctuation (so `"MongoDB?"` matches `"mongodb"`) and beat three alternative tokenizers on the 100-query sweep.
 
 | System | NDCG@10 | Recall@10 | Notes |
 |--------|---------|-----------|-------|
-| Vector only (MiniLM top-10) | 0.1376 | 0.2173 | Bi-encoder baseline |
-| BM25 only (top-10) | 0.2420 | 0.3264 | Sparse keyword baseline |
-| Hybrid BM25+vector RRF (memsearch style) | 0.2171 | 0.3334 | Rank fusion, no reranker |
-| Vector + cross-encoder rerank (k=30) | 0.2425 | 0.2892 | Dense + reranker |
-| **Hybrid + cross-encoder rerank (k=30)** | **0.3680** | **0.4694** | **Best without any learned component** |
+| Vector only (MiniLM top-10) | 0.1376 | 0.2173 | Bi-encoder baseline; no BM25, unchanged |
+| BM25 only (top-10) | 0.3171 | 0.4152 | Sparse keyword baseline (was 0.2420 with `lower().split()`) |
+| Hybrid BM25+vector RRF (memsearch style) | 0.2408 | 0.3554 | Rank fusion, no reranker (was 0.2171) |
+| Vector + cross-encoder rerank (k=30) | 0.2425 | 0.2892 | Dense + reranker; no BM25, unchanged |
+| **Hybrid + cross-encoder rerank (k=30)** | **0.3817** | **0.4964** | **Best without any learned component** (was 0.3680) |
 
-500-query full eval (the default for all Phase 2+ results):
+500-query full eval (the default for all Phase 2+ results). Current values use the regex BM25 tokenizer (2026-04-24); original `lower().split()` numbers kept for reference.
 
-| System | NDCG@10 | Recall@30 |
-|--------|---------|-----------|
-| Baseline (hybrid + xenc, no RIF) | 0.2960 | 0.4103 |
+| System | NDCG@10 | Recall@30 | Prev (lower+split) |
+|--------|---------|-----------|--------------------|
+| Baseline (hybrid + xenc, no RIF) | **0.3311** | **0.4739** | 0.2960 / 0.4103 |
 
 ### Retrieval-induced forgetting (RIF)
 
-Checkpoints 11–13. All on 500-query full eval, 5000-step burn-in.
+Checkpoints 11–13. All on 500-query full eval, 5000-step burn-in. Re-measured 2026-04-24 with the regex BM25 tokenizer — relative gains shrink because the baseline is stronger, but absolute NDCG and Recall both improve across every config.
 
-| Config | NDCG@10 | Recall@30 | Notes |
-|--------|---------|-----------|-------|
-| Global RIF (original formula) | 0.2993 (+1.1%) | 0.4142 (+0.9%) | **Not statistically significant**: permutation p=0.62 NDCG, 0.72 Recall (checkpoint 18) |
-| Global RIF (gap formula) | 0.3037 (+2.6%) | 0.4250 (+3.6%) | **Not statistically significant**: p=0.18 NDCG, 0.13 Recall |
-| Clustered RIF 30 (original) | 0.3132 (+5.8%) | 0.4381 (+6.8%) | **Significant**: p=0.002 NDCG, p=0.0009 Recall, 95% CI excludes zero |
-| **Clustered RIF 30 + gap formula** | **0.3152 (+6.5%)** | **0.4494 (+9.5%)** | **Best retrieval-only**. Significant vs baseline (p=0.0001 both metrics). Pairwise over uniform rule not individually significant (p=0.55 NDCG, 0.055 Recall): efficiency win, not a demonstrated quality improvement over uniform |
+| Config | NDCG@10 | Recall@30 | Prev (lower+split) |
+|--------|---------|-----------|--------------------|
+| Global RIF (gap formula) | 0.3369 (+1.8%) | 0.4741 (+0.0%) | 0.3037 (+2.6%) / 0.4250 (+3.6%) |
+| Clustered RIF 10 (gap formula) | **0.3444 (+4.0%)** | 0.4917 (+3.8%) | — |
+| **Clustered RIF 30 (gap formula)**¹ | **0.3422 (+3.4%)** | **0.4972 (+4.9%)** | 0.3152 (+6.5%) / 0.4494 (+9.5%) |
+| Clustered RIF 50 (gap formula) | 0.3385 (+2.3%) | 0.4942 (+4.3%) | — |
+| Clustered RIF 100 (gap formula) | 0.3411 (+3.0%) | 0.4900 (+3.4%) | — |
 
-Default config for the best row: `alpha=0.3`, `suppression_rate=0.1`, `reinforcement_rate=0.05`, `decay_lambda=0.005`, `n_clusters=30`, `use_rank_gap=True`.
+¹ Production default config. 10-clusters beat 30-clusters on NDCG (+4.0% vs +3.4%) on this single run; recommend a proper sweep with confidence intervals before considering a default change — CIs likely overlap given n=500.
+
+Default config for the production row: `alpha=0.3`, `suppression_rate=0.1`, `reinforcement_rate=0.05`, `decay_lambda=0.005`, `n_clusters=30`, `use_rank_gap=True`. Reproducer: `benchmarks/run_rif_clustered.py`. Stat-significance tests (paired permutation, bootstrap CI) from checkpoint 18 were on the old tokenizer; results with the new tokenizer have not been re-verified for significance.
 
 **Mechanism**: entries that make the candidate pool but lose to the cross-encoder accumulate a per-cluster suppression score. On subsequent retrievals in the same query cluster, suppression penalizes RRF scores before the cross-encoder sees them.
 - **Clustered**: `{entry_id → {cluster_id → float}}` instead of `{entry_id → float}`. An entry suppressed for "travel" queries stays available for "food" queries.

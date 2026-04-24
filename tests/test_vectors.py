@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from lethe.vectors import VectorIndex, _top_k_desc
+from lethe.vectors import VectorIndex, tokenize_bm25, _top_k_desc
 
 
 DIM = 16
@@ -140,3 +140,53 @@ def test_top_k_desc_matches_argsort_tail() -> None:
             assert np.array_equal(
                 scores[got], scores[expected]
             ), f"n={n} k={k}: tie-breaks may differ but score sequence must match"
+
+
+# ---------- tokenize_bm25 ----------
+
+def test_tokenize_bm25_strips_punctuation_and_lowercases() -> None:
+    """Punctuation handling is the whole point of the regex tokenizer:
+    ``"MongoDB?"`` must match ``"mongodb"`` so short-query BM25 fires."""
+    assert tokenize_bm25("MongoDB?") == ["mongodb"]
+    assert tokenize_bm25("Hello, world!") == ["hello", "world"]
+    assert tokenize_bm25("can't won't") == ["can", "t", "won", "t"]
+    assert tokenize_bm25("") == []
+
+
+def test_search_bm25_empty_tokens_returns_empty() -> None:
+    """Regression: a query that tokenizes to [] (punctuation-only)
+    must not return arbitrary docs. BM25Okapi.get_scores([]) yields
+    all-zero scores, and without the guard search_bm25 would return
+    the first k corpus ids."""
+    idx = VectorIndex(dim=DIM)
+    ids = ["a", "b", "c"]
+    idx.build(
+        ids,
+        np.eye(3, DIM, dtype=np.float32),
+        ["alpha beta gamma", "delta epsilon", "zeta eta"],
+    )
+    # Each of these tokenizes to [] under the regex tokenizer.
+    for q in ("???", "...", "!!!", "   "):
+        assert idx.search_bm25(q, k=5) == [], f"expected empty for {q!r}"
+        assert idx.search_bm25_scored(q, k=5) == [], f"expected empty for {q!r}"
+
+
+def test_search_bm25_matches_across_punctuation() -> None:
+    """Regression: the previous lower().split() tokenizer missed
+    matches when the query or corpus had trailing punctuation.
+
+    Uses a 5-doc corpus so BM25Okapi's IDF is non-degenerate
+    (it returns 0 when df = (N+1)/2 on tiny corpora)."""
+    idx = VectorIndex(dim=DIM)
+    ids = ["a", "b", "c", "d", "e"]
+    contents = [
+        "I use MongoDB daily.",
+        "unrelated content about cats",
+        "another note about cars",
+        "another about cooking recipes",
+        "yet another about music theory",
+    ]
+    idx.build(ids, np.eye(5, DIM, dtype=np.float32), contents)
+    # Query with trailing '?' must still match "MongoDB" in doc "a".
+    results = idx.search_bm25("MongoDB?", k=5)
+    assert results[0] == "a"

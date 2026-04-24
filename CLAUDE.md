@@ -95,11 +95,13 @@ LongMemEval S (200k turns, 500 questions, 200-query eval sample):
 | System | NDCG@10 |
 |--------|---------|
 | Vector only | 0.1376 |
-| BM25 only | 0.2420 |
-| Hybrid RRF (memsearch style) | 0.2171 |
-| **Hybrid + cross-encoder rerank** | **0.3680** |
+| BM25 only | 0.3171 |
+| Hybrid RRF (memsearch style) | 0.2408 |
+| **Hybrid + cross-encoder rerank** | **0.3817** |
 
-The 0.3680 is from BM25+vector+cross-encoder reranking (standard IR). The GC mechanism does not improve this number. Verified with integrity checks.
+The 0.3817 is from BM25+vector+cross-encoder reranking (standard IR). The GC mechanism does not improve this number. Verified with integrity checks.
+
+BM25 tokenizer was upgraded from `lower().split()` to a regex word-tokenizer on 2026-04-24 (previous headline: 0.3680 → 0.3817, +1.37pp; BM25-only: 0.2420 → 0.3171, +7.51pp). See [benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md](benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md).
 
 ## research status
 

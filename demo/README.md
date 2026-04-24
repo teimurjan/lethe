@@ -25,17 +25,21 @@ honest about diminishing returns, not a linear ramp.
 The same output also embeds the **headline frame number**:
 
     meta.headline = {
-      baselineNdcg: 0.217,
-      lethNdcg:     0.368,
-      deltaPct:     69.5,
-      text:         "+70% NDCG vs hybrid retrieval",
+      baselineNdcg: 0.2408,
+      lethNdcg:     0.3817,
+      deltaPct:     58.5,
+      text:         "+59% NDCG vs hybrid retrieval",
       baselineLabel: "hybrid retrieval (BM25 + vector RRF)"
     }
 
-Both numbers come straight from CLAUDE.md's LongMemEval S benchmark
-table — no fabrication. The frame is the big "+70%" the video shows
-once; the graph shows the real+synthetic per-round curve growing
-beside a flat baseline.
+Numbers come from BENCHMARKS.md's LongMemEval S headline table
+(re-measured 2026-04-24 on the regex BM25 tokenizer). Previous
+run was 0.2171 / 0.3680 (+69.5%) on the `lower().split()` tokenizer
+— the delta shrank because the simpler RRF baseline improved more
+in relative terms than the full stack did. Absolute numbers both
+went up. The frame is the big "+59%" the video shows once; the
+graph shows the real+synthetic per-round curve growing beside a
+flat baseline.
 
 Rows tagged `phase: "warm4"..."warm10"` also carry `synthetic: true`
 so the UI can render them distinctly if wanted (lighter stroke, etc).
@@ -44,7 +48,9 @@ so the UI can render them distinctly if wanted (lighter stroke, etc).
 uv run python demo/scripts/extend_replay.py    # requires run_replay.json
 ```
 
-Per-round lethe means on our latest data:
+Per-round lethe means on our latest data (collected pre-tokenizer-upgrade
+on the `lower().split()` pipeline — re-collect via `collect_replay.py`
+for new-tokenizer numbers):
 
     warm1  real   0.348      warm6  synth  0.362
     warm2  real   0.349      warm7  synth  0.362

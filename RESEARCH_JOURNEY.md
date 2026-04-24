@@ -432,6 +432,47 @@ LongMemEval S, 100-query random sample (seed 0), full production pipeline (BM25 
 
 Reproducer: `benchmarks/run_deep_pass.py`. Raw table: `benchmarks/results/BENCHMARKS_DEEP_PASS.md`.
 
+### Implementation note: BM25 tokenizer (`lower().split()` → regex word-tokens)
+
+A Codex code review flagged that BM25 tokenization was still `text.lower().split()` — the first implementation from checkpoint 8. Under `split()`, `"MongoDB?"` and `"MongoDB"` are different tokens, so any query ending in punctuation silently misses the matching corpus turn. We swept four tokenizers on a 100-query random sample (seed 0), shipped pipeline, `k_deep=100`:
+
+| Tokenizer | NDCG@10 | Recall@10 | BM25 build |
+|-----------|---------|-----------|------------|
+| baseline (`lower().split()`) | 0.3022 | 0.3731 | 11.2s |
+| **regex `[A-Za-z0-9_]+`** | **0.3390 (+3.68 pp)** | **0.4410 (+6.79 pp)** | 10.4s |
+| regex + stopword removal | 0.3084 (+0.63 pp) | 0.4027 | 10.6s |
+| regex + Porter stemming | 0.3153 (+1.31 pp) | 0.4143 | 187.8s |
+
+Two non-obvious results:
+
+- **Stopword removal regresses.** Dropping function words ("the", "of", "is", …) erases most of the gain. Conversational memory has short, specific queries where function words act as syntactic anchors — removing them is net-harmful on this corpus.
+- **Porter stemming is a trap.** Build cost jumps 17× (10s → 188s), NDCG tops out at +1.31 pp — well below plain regex. The over-conflation cost (e.g. `generate`/`general` → `gener`) exceeds the vocabulary-compression gain on conversational text.
+
+On the full 200-query headline benchmark the swap lifted the production pipeline from **0.3680 → 0.3817 NDCG@10** (BM25-only jumped 0.2420 → 0.3171). Bigger single-lever quality win than clustered-RIF on the same corpus, measured on the same eval sample. The lift is punctuation-only — the 200k conversational turns are heavy on trailing `?`, `.`, contractions, and hook-written session anchors that previously didn't tokenize cleanly.
+
+Reproducer: `benchmarks/run_bm25_tokenizer.py`. Raw table: `benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md`.
+
+#### Downstream effect on RIF: absolute gains up, relative gains halved
+
+Re-ran the full checkpoint-11/12/13 bench with the regex tokenizer (500-query full eval, 5000-step burn-in):
+
+| Config | NDCG@10 | Rel gain | Prev tokenizer |
+|--------|---------|----------|----------------|
+| Baseline (no RIF) | 0.3311 | — | 0.2960 (+3.51pp from tokenizer) |
+| Global RIF (gap) | 0.3369 | +1.8% | 0.3037 (+2.6%) |
+| Clustered RIF 30 (gap, prod default) | 0.3422 | +3.4% | 0.3152 (+6.5%) |
+| Clustered RIF 10 (gap) | 0.3444 | +4.0% | — |
+
+Two findings, both expected under a "better base leaves less to recover" mental model:
+
+- **Absolute numbers improved across the board.** Clustered RIF 30 absolute went 0.3152 → 0.3422 (+2.70 pp); Recall@30 went 0.4494 → 0.4972 (+4.78 pp). The mechanism is net-positive on the stronger baseline.
+- **Relative gains halved.** Clustered RIF 30's NDCG gain went from +6.5% to +3.4%. Global RIF is now basically flat (+1.8%, measured separately, +0.1% here). This strengthens the original checkpoint-12/13 story: the cue-dependence of *clustered* RIF is what keeps it in the money when the base retrieval improves; global suppression does not.
+- **10-clusters narrowly beats 30-clusters on NDCG** (+4.0% vs +3.4%) but 30-clusters wins Recall@30. Single-sample finding — CIs on this workload typically overlap in that range, so not switching defaults without a proper sweep.
+
+Significance testing (paired permutation, bootstrap CI) from checkpoint 18 was on the old tokenizer. The clustered-RIF claim is expected to survive re-testing (absolute effect size did not collapse), but that hasn't been re-verified.
+
+Reproducer: `benchmarks/run_rif_clustered.py`. Raw table: `benchmarks/results/BENCHMARKS_RIF_CLUSTERED.md`.
+
 ---
 
 ## What's next
