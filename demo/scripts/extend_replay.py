@@ -16,11 +16,21 @@ so we anchor synthetic growth to it rather than the dipped warm3.
 Gains saturate — honest about diminishing returns, not a linear ramp.
 
 Also embeds meta.headline for the "+X%" frame the video shows
-alongside the graph. Numbers are pulled from CLAUDE.md's published
-LongMemEval benchmark table:
+alongside the graph. Numbers are pulled from the published
+LongMemEval benchmark table (BENCHMARKS.md, re-measured 2026-04-24
+on the regex BM25 tokenizer):
 
-    Hybrid RRF (BM25 + vector)        0.2171
-    Hybrid + cross-encoder rerank     0.3680   → +69.5%
+    Hybrid RRF (BM25 + vector)        0.2408
+    Hybrid + cross-encoder rerank     0.3817   → +58.5%
+
+Previous (lower+split tokenizer, kept for history):
+    Hybrid RRF                        0.2171
+    Hybrid + xenc                     0.3680   → +69.5%
+
+The delta shrank because the basic-RRF baseline improved more in
+relative terms than the full stack did — the tokenizer fix
+disproportionately helps the simpler pipeline. Absolute number
+moved up for both.
 
 Output: demo/public/run_replay_extended.json.
 
@@ -45,8 +55,8 @@ TAU = 4.0             # rounds to saturate toward G_MAX
 NOISE_STD = 0.03      # per-qid, per-round jitter so synthetic rows don't look drawn
 SEED = 42
 
-HEADLINE_BASELINE_NDCG = 0.2171
-HEADLINE_LETHE_NDCG = 0.3680
+HEADLINE_BASELINE_NDCG = 0.2408
+HEADLINE_LETHE_NDCG = 0.3817
 HEADLINE_BASELINE_LABEL = "hybrid retrieval (BM25 + vector RRF)"
 
 
