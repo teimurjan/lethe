@@ -1,5 +1,6 @@
 results/
 !benchmarks/results/
+benchmarks/results/int8_embeds/
 data/
 __pycache__/
 *.egg-info/

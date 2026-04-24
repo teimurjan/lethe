@@ -82,7 +82,7 @@ uvx --from git+https://github.com/teimurjan/lethe lethe --version
 
 - BM25 + FAISS hybrid retrieval (BM25 is the strongest single signal on conversation data)
 - Cross-encoder reranking on the merged candidate pool
-- Adaptive search depth: shallow k=30 for confident queries, deep k=200 when unsure
+- Adaptive search depth: shallow k=30 for confident queries, deep k=100 when unsure (LongMemEval sweep at `benchmarks/results/BENCHMARKS_DEEP_PASS.md` shows NDCG@10 is flat past rank 100, so the previous k=200 was pure rerank overhead)
 - Cosine 0.95 dedup on add (removes 4.6% of LongMemEval, +6.5% NDCG)
 - Tier lifecycle: naive → gc → memory (with decay and apoptosis)
 - RIF: retrieval-induced forgetting suppresses chronic false positives at candidate selection stage

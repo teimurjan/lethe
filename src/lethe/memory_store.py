@@ -44,7 +44,7 @@ class MemoryStore:
         cross_encoder: Any = None,
         dim: int = 384,
         k_shallow: int = 30,
-        k_deep: int = 200,
+        k_deep: int = 100,
         confidence_threshold: float = 4.0,
         dedup_threshold: float = 0.95,
         rif_config: RIFConfig | None = None,

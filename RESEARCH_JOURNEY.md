@@ -380,6 +380,60 @@ Production implementation: `MemoryStore` collects query embeddings during `retri
 
 ---
 
+### Implementation note: speed-up attempts that didn't pan out (int8 swap, CoreML EP)
+
+Before finding the real latency lever, we tried two obvious ones that failed on this workload. Logging them so future explorers don't rediscover.
+
+**1. Swap the bi-encoder to an int8-quantized variant.** Hypothesis: a smaller, pre-quantized ONNX (`BAAI/bge-small-en-v1.5` at 67 MB via `qdrant/bge-small-en-v1.5-onnx-q`) would halve load time and raise throughput.
+
+| metric | all-MiniLM-L6-v2 (fp32, current) | bge-small-en-v1.5 (int8) |
+|---|---|---|
+| cold-start, median of 3 subprocess probes | 0.39 s | 0.44 s |
+| warm throughput, **synthetic** fixed-length sentences | 108 items/s | **532 items/s** (4.9×) |
+| warm throughput, **real LongMemEval conversation turns** | ~47 items/s | **~11 items/s** (0.23×, *regression*) |
+
+The 4.9× win on synthetic text inverts to a ~4× regression on real conversational turns. Root cause: BGE-small's max context is 512 tokens vs MiniLM's 256; variable-length LongMemEval turns (often > 256 tokens) push BGE to ~2× the per-item compute, and the token-throughput differential dwarfs any tensor-width win from int8. Synthetic short sentences hide this by staying well under both caps.
+
+We did not complete the NDCG arm (killed at ~20% of corpus re-embed once the throughput inversion made the speed premise moot). The quality question is open, but there's no speed incentive to answer it on this workload.
+
+Reproducer: `benchmarks/run_int8.py`. Raw table: `benchmarks/results/BENCHMARKS_INT8.md`.
+
+**2. CoreML execution provider on Apple Silicon.** Hypothesis: route onnxruntime through the Neural Engine / Metal via `providers=["CoreMLExecutionProvider", "CPUExecutionProvider"]`.
+
+| metric | CPU EP | CoreML EP |
+|---|---|---|
+| bi-encoder load + warm | 114 ms | **1195 ms** (10.5× slower) |
+| bi-encoder embed 150 docs | 1249 ms | **9427 ms** (7.5× slower) |
+| xenc load + warm | 68 ms | **1606 ms** (23× slower) |
+| xenc rerank 60 pairs | 229 ms | **1886 ms** (8× slower) |
+
+Classic "model too small for accelerator dispatch." onnxruntime's CoreML partitioner only covers ~72 % of the graph (232/323 nodes); the remaining 28 % run on CPU, so every forward pass pays a round-trip Metal/ANE transfer cost that would only amortize on models ~5-10× larger than MiniLM-L6. The same calculus applies to `fastembed-gpu` (CUDA on NVIDIA) — small MiniLM-family models don't saturate a GPU either.
+
+Takeaway: for the current 22M-param bi-encoder + 22M-param cross-encoder, the CPU path is Pareto-optimal, and the latency lever lives in the retrieval pipeline (rerank pool sizing), not the hardware provider — leading to the `k_deep=200 → 100` calibration below.
+
+---
+
+### Implementation note: adaptive deep-pass `k_deep` re-calibration (200 → 100)
+
+Checkpoint 6 introduced the adaptive depth: shallow `k=30`, deep `k=200` when cross-encoder confidence is low. The 200 was never measured against smaller alternatives — it was picked as "large enough to never hurt." Once the TUI started making the deep pass user-visible (cross-project search over N registered projects pays `N × k_deep` rerank cost in the worst case), we re-ran the sweep.
+
+LongMemEval S, 100-query random sample (seed 0), full production pipeline (BM25 + FAISS → RRF → cross-encoder rerank), deep pass fires on 59% of queries:
+
+| config | NDCG@10 | Recall@10 | ΔNDCG vs baseline | p50 | p95 |
+|---|---|---|---|---|---|
+| shallow-only (no deep pass) | 0.2866 | 0.3493 | −1.56 pp | 1689 ms | 2371 ms |
+| k_deep=60  | 0.2910 | 0.3527 | −1.11 pp | 4159 ms | 5936 ms |
+| **k_deep=100** | **0.3022** | **0.3731** | **0.00 pp** | **5651 ms** | **7440 ms** |
+| k_deep=200 (old) | 0.3022 | 0.3727 | baseline | 9800 ms | 12650 ms |
+
+`k_deep=100` gives **identical NDCG@10 and Recall@10** to the old 200 while cutting p50 ~42% and p95 ~41%. The cross-encoder's top-10 picks stabilize by merged rank ~100 on this workload — ranks 101-200 never won a top-10 slot, so the old 200 was pure latency tax.
+
+`k_deep=60` is cheaper still but costs 1.1 pp NDCG, above the noise floor — rejected. If a user ever reports a query pattern where 100 is insufficient, the knob is exposed on the `MemoryStore` / `UnionStore` constructors.
+
+Reproducer: `benchmarks/run_deep_pass.py`. Raw table: `benchmarks/results/BENCHMARKS_DEEP_PASS.md`.
+
+---
+
 ## What's next
 
 Four open directions, in rough priority:
