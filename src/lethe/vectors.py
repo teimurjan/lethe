@@ -9,6 +9,20 @@ import numpy.typing as npt
 from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
 
+def _top_k_desc(scores: np.ndarray, k: int) -> np.ndarray:
+    """Indices of the top-``k`` entries by ``scores``, descending.
+
+    ``argpartition`` avoids sorting the whole array for large corpora
+    (O(N) vs O(N log N)); we then sort only the k winners."""
+    n = len(scores)
+    if n == 0:
+        return np.empty(0, dtype=np.int64)
+    if k >= n:
+        return np.argsort(scores)[::-1]
+    part = np.argpartition(scores, -k)[-k:]
+    return part[np.argsort(scores[part])[::-1]]
+
+
 class VectorIndex:
     """Manages FAISS dense vector index and BM25 sparse keyword index."""
 
@@ -68,7 +82,7 @@ class VectorIndex:
             return []
         tokens = query_text.lower().split()
         scores = self._bm25.get_scores(tokens)
-        top_idx = np.argsort(scores)[::-1][:k]
+        top_idx = _top_k_desc(scores, k)
         return [self._ids[i] for i in top_idx if i < len(self._ids)]
 
     def search_bm25_scored(self, query_text: str, k: int) -> list[tuple[str, float]]:
@@ -77,7 +91,7 @@ class VectorIndex:
             return []
         tokens = query_text.lower().split()
         scores = self._bm25.get_scores(tokens)
-        top_idx = np.argsort(scores)[::-1][:k]
+        top_idx = _top_k_desc(scores, k)
         return [
             (self._ids[i], float(scores[i]))
             for i in top_idx if i < len(self._ids)

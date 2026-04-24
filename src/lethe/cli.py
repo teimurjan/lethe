@@ -278,8 +278,8 @@ def cmd_index(args: argparse.Namespace) -> int:
             index_dir=paths.index,
         )
         counts = md.reindex(store)
-        store.save()
     finally:
+        # close() persists the final state; no need for an extra save().
         store.close()
 
     _maybe_auto_register(paths, cfg, opted_out=bool(args.no_register))
@@ -304,8 +304,8 @@ def cmd_search(args: argparse.Namespace) -> int:
     store = _open_store(paths, cfg, need_encoders=True)
     try:
         results = store.retrieve(args.query, k=args.top_k)
-        store.save()
     finally:
+        # close() persists RIF mutations; no extra save() needed.
         store.close()
 
     if args.json_output:

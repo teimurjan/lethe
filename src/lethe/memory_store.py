@@ -80,6 +80,18 @@ class MemoryStore:
         self._query_emb_buffer: list[npt.NDArray[np.float32]] = []
         self._min_cluster_queries: int = max(self.rif.n_clusters * 10, 30)
 
+        # Structural-dirty flag: True iff add()/delete happened since
+        # the last save. Saves rewrite ~15 MB of embeddings.npz and the
+        # full FAISS index; retrieve() only mutates per-entry state
+        # (affinity/retrieval_count/suppression), which is cheap SQL.
+        # Tracking this lets save() skip the expensive writes when only
+        # retrieve-side state changed — the common case in the TUI.
+        self._structure_dirty = True
+        # Bulk-ingest gate: when True, add() skips the per-call FAISS +
+        # BM25 rebuild; the caller is responsible for flushing via
+        # bulk_add()'s context manager.
+        self._defer_rebuild = False
+
         # Load existing data
         self._load()
 
@@ -182,10 +194,32 @@ class MemoryStore:
         self.entries[eid] = entry
         self._embeddings[eid] = emb
         self.db.insert_entry(entry)
+        self._structure_dirty = True
 
-        # Rebuild index
-        self._rebuild_index()
+        if not self._defer_rebuild:
+            self._rebuild_index()
         return eid
+
+    def bulk_add(self) -> "_BulkAddContext":
+        """Context manager that defers index rebuilds until exit.
+
+        Inside the ``with`` block, ``add()`` skips the per-call FAISS +
+        BM25 rebuild; on exit we rebuild exactly once. For reindex
+        workloads this turns N × O(N) into O(N) on the index side.
+        """
+        return _BulkAddContext(self)
+
+    def delete(self, entry_id: str) -> bool:
+        """Remove an entry. Returns True if it existed."""
+        if entry_id not in self.entries:
+            return False
+        self.db.delete_entry(entry_id)
+        self.entries.pop(entry_id, None)
+        self._embeddings.pop(entry_id, None)
+        self._structure_dirty = True
+        if not self._defer_rebuild:
+            self._rebuild_index()
+        return True
 
     def _ensure_clusters(self) -> None:
         """Lazily build/rebuild cluster centroids over past query embeddings.
@@ -228,8 +262,10 @@ class MemoryStore:
         # Feed query embedding into the cluster-building buffer.
         # Centroids are built once (when buffer reaches n_clusters) and then
         # frozen — rebuilding invalidates cluster IDs which breaks the
-        # per-cluster suppression state.
-        if self._cluster_state is not None:
+        # per-cluster suppression state. Once frozen, further appends
+        # never influence behavior but do grow the on-disk .npz on each
+        # save(), so stop after the build.
+        if self._cluster_state is not None and self._cluster_centroids is None:
             self._query_emb_buffer.append(query_emb.copy())
 
         self._ensure_clusters()
@@ -335,15 +371,23 @@ class MemoryStore:
             entry.affinity *= factor
 
     def save(self) -> None:
-        """Persist state to disk."""
-        # Save embeddings
-        if self._embeddings:
-            ids = list(self._embeddings.keys())
-            embs = np.stack([self._embeddings[eid] for eid in ids])
-            np.savez(str(self.path / "embeddings.npz"),
-                     ids=np.array(ids), embeddings=embs)
-        # Save FAISS index
-        self.index.save(self.path)
+        """Persist state to disk.
+
+        ``embeddings.npz`` and the FAISS index are only rewritten when
+        ``_structure_dirty`` is set (i.e. an ``add()`` or delete has
+        happened since the last save). Per-retrieve state —
+        affinity/retrieval_count/suppression — is cheap SQL and is
+        always flushed.
+        """
+        if self._structure_dirty:
+            if self._embeddings:
+                ids = list(self._embeddings.keys())
+                embs = np.stack([self._embeddings[eid] for eid in ids])
+                np.savez(str(self.path / "embeddings.npz"),
+                         ids=np.array(ids), embeddings=embs)
+            self.index.save(self.path)
+            self._structure_dirty = False
+
         # Update entries in SQLite
         self.db.batch_update_entries(list(self.entries.values()))
         self.db.set_stat("step", str(self._step))
@@ -353,8 +397,10 @@ class MemoryStore:
             self.db.save_cluster_suppression(scores, last)
         if self._cluster_centroids is not None:
             self.db.save_cluster_centroids(self._cluster_centroids)
-        # Query embedding buffer for cluster rebuilds across sessions
-        if self._query_emb_buffer:
+        # Query embedding buffer for cluster rebuilds across sessions.
+        # We stop appending once centroids are frozen (see retrieve()),
+        # so this file is effectively write-once after the first build.
+        if self._query_emb_buffer and self._cluster_centroids is None:
             np.savez(
                 str(self.path / "query_embeddings.npz"),
                 embeddings=np.stack(self._query_emb_buffer),
@@ -400,3 +446,23 @@ class MemoryStore:
             "step": self._step,
             "index_size": self.index.size,
         }
+
+
+class _BulkAddContext:
+    """Tiny context manager that flips ``_defer_rebuild`` around a block
+    and rebuilds once on exit. Exposed via ``MemoryStore.bulk_add()``."""
+
+    def __init__(self, store: MemoryStore) -> None:
+        self._store = store
+
+    def __enter__(self) -> MemoryStore:
+        self._store._defer_rebuild = True
+        return self._store
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self._store._defer_rebuild = False
+        # Rebuild even on exception — the store's in-memory state may
+        # be partially updated and retrievals after a failed bulk insert
+        # should still see a consistent index.
+        if self._store.entries:
+            self._store._rebuild_index()

@@ -202,29 +202,25 @@ class MarkdownStore:
         unchanged = 0
         removed = 0
 
-        for chunk in chunks:
-            if chunk.id in store.entries:
-                unchanged += 1
-                continue
-            inserted = store.add(
-                embed_content(chunk.content),
-                entry_id=chunk.id,
-                session_id=chunk.source.stem,
-            )
-            if inserted is not None:
-                added += 1
-            else:
-                unchanged += 1
+        # One FAISS + BM25 rebuild at the end instead of N rebuilds.
+        with store.bulk_add():
+            for chunk in chunks:
+                if chunk.id in store.entries:
+                    unchanged += 1
+                    continue
+                inserted = store.add(
+                    embed_content(chunk.content),
+                    entry_id=chunk.id,
+                    session_id=chunk.source.stem,
+                )
+                if inserted is not None:
+                    added += 1
+                else:
+                    unchanged += 1
 
-        for old_id in set(store.entries) - current_ids:
-            if old_id in store.entries:
-                store.db.delete_entry(old_id)
-                store.entries.pop(old_id, None)
-                store._embeddings.pop(old_id, None)
-                removed += 1
-
-        if removed:
-            store._rebuild_index()
+            for old_id in set(store.entries) - current_ids:
+                if store.delete(old_id):
+                    removed += 1
 
         return {
             "added": added,

@@ -6,7 +6,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from lethe.vectors import VectorIndex
+from lethe.vectors import VectorIndex, _top_k_desc
 
 
 DIM = 16
@@ -122,3 +122,21 @@ def test_search_bm25_scored_returns_sorted() -> None:
     # Results sorted descending by score
     scores = [s for _, s in results]
     assert scores == sorted(scores, reverse=True)
+
+
+# ---------- _top_k_desc ----------
+
+def test_top_k_desc_matches_argsort_tail() -> None:
+    """``_top_k_desc`` must return the same k winners, same order, as
+    the previous ``np.argsort(scores)[::-1][:k]`` implementation."""
+    rng = np.random.default_rng(0)
+    for n in (0, 1, 10, 200, 5000):
+        scores = rng.standard_normal(n).astype(np.float32)
+        for k in (1, 5, 50, n, n + 1):
+            if k == 0:
+                continue
+            got = _top_k_desc(scores, k)
+            expected = np.argsort(scores)[::-1][:k]
+            assert np.array_equal(
+                scores[got], scores[expected]
+            ), f"n={n} k={k}: tie-breaks may differ but score sequence must match"
