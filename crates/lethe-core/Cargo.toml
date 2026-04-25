@@ -35,6 +35,23 @@ once_cell.workspace = true
 [dev-dependencies]
 tempfile = "3.10"
 approx = "0.5"
+criterion = { version = "0.5", default-features = false, features = ["cargo_bench_support"] }
+
+[[bench]]
+name = "bench_bm25"
+harness = false
+
+[[bench]]
+name = "bench_faiss_flat"
+harness = false
+
+[[bench]]
+name = "bench_rrf"
+harness = false
+
+[[bench]]
+name = "bench_rif"
+harness = false
 
 [lints]
 workspace = true
