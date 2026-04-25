@@ -82,8 +82,29 @@ fn build_session(onnx_path: &std::path::Path) -> Result<Session, Error> {
         .map_err(|e| Error::Encoder(format!("commit ONNX: {e}")))
 }
 
+/// Cap on `(input_ids)` length we feed into the model. Both the
+/// MiniLM bi-encoder and the MS-MARCO cross-encoder are BERT-style
+/// with `max_position_embeddings = 512`. Without an explicit
+/// truncation config the `tokenizers` crate happily produces
+/// 700-token (q, passage) pairs, and ONNX Runtime then aborts with
+/// `Attempting to broadcast an axis by a dimension other than 1.
+/// 512 by 700`. fastembed (Python) truncates implicitly; we must
+/// match that.
+const MODEL_MAX_LEN: usize = 512;
+
 fn load_tokenizer(path: &std::path::Path) -> Result<Tokenizer, Error> {
-    Tokenizer::from_file(path).map_err(|e| Error::Encoder(format!("tokenizer.json: {e}")))
+    let mut tok = Tokenizer::from_file(path)
+        .map_err(|e| Error::Encoder(format!("tokenizer.json: {e}")))?;
+    tok.with_truncation(Some(tokenizers::TruncationParams {
+        max_length: MODEL_MAX_LEN,
+        // `LongestFirst` matches HuggingFace transformers' default for
+        // sequence-pair encoding, which is what the cross-encoder uses.
+        strategy: tokenizers::TruncationStrategy::LongestFirst,
+        stride: 0,
+        direction: tokenizers::TruncationDirection::Right,
+    }))
+    .map_err(|e| Error::Encoder(format!("set truncation: {e}")))?;
+    Ok(tok)
 }
 
 /// Bi-encoder producing L2-normalized embeddings. Single text and
