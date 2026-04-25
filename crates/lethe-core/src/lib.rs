@@ -10,8 +10,10 @@
 pub mod bm25;
 pub mod db;
 pub mod dedup;
+pub mod encoders;
 pub mod entry;
 pub mod error;
+pub mod faiss_flat;
 pub mod kmeans;
 pub mod lock;
 pub mod markdown_store;

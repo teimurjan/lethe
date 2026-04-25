@@ -1969,6 +1969,7 @@ dependencies = [
  "ndarray",
  "ort-sys",
  "smallvec",
+ "tracing",
  "ureq 3.3.0",
 ]
 
