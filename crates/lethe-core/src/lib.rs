@@ -8,9 +8,14 @@
 #![warn(clippy::all)]
 
 pub mod bm25;
+pub mod db;
 pub mod dedup;
+pub mod entry;
 pub mod error;
 pub mod kmeans;
+pub mod lock;
+pub mod markdown_store;
+pub mod registry;
 pub mod rif;
 pub mod rrf;
 pub mod tokenize;
