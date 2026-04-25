@@ -1,0 +1,24 @@
+[package]
+name = "lethe-bench"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.94"
+description = "LongMemEval bench harness for the Rust port. Outputs JSON for parity comparison."
+license = "MIT"
+repository = "https://github.com/teimurjan/lethe"
+publish = false
+
+[[bin]]
+name = "lethe-bench"
+path = "src/main.rs"
+
+[dependencies]
+lethe-core = { path = "../lethe-core" }
+ndarray.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+
+[lints]
+workspace = true

@@ -12,6 +12,7 @@ members = [
     "crates/lethe-tui",
     "crates/lethe-py",
     "crates/lethe-node",
+    "crates/lethe-bench",
 ]
 
 # Shared dependency versions so every crate links the same builds.
