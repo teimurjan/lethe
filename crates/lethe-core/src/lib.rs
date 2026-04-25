@@ -17,10 +17,13 @@ pub mod faiss_flat;
 pub mod kmeans;
 pub mod lock;
 pub mod markdown_store;
+pub mod memory_store;
 pub mod registry;
+pub mod reranker;
 pub mod rif;
 pub mod rrf;
 pub mod tokenize;
+pub mod union_store;
 
 pub use error::{Error, Result};
 
