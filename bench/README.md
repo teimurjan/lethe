@@ -1,43 +1,79 @@
-# Python ↔ Rust comparison harness
+# Python ↔ Rust parity bench
 
-End-to-end timer that measures cold-start (process boot) and warm
-retrieve latency for both implementations on the local machine, then
-writes a markdown report to `bench/results/COMPARE_<host>_<date>.md`.
+The migration-confidence ladder. Three suites, all 1-1 between Python
+and Rust: each script accepts `--impl python` or `--impl rust` and
+emits the same JSON shape; `--compare` runs both and writes a single
+markdown report under `bench/results/`.
+
+## Layout
+
+```
+bench/
+├── README.md
+├── _lib.py            # shared utilities
+├── prepare.py         # one-time data export (gitignored output)
+├── longmemeval.py     # Layer 1: end-to-end NDCG/Recall on LongMemEval
+├── components.py      # Layer 3: per-component numerical diff
+├── latency.py         # cold-start + warm-retrieve timing
+└── results/           # only persistent output: COMPARE_*.md reports
+```
+
+The Rust side is a single binary, `target/release/lethe-bench`, with
+matching subcommands (`longmemeval`, `bm25`, `flat-ip`, `xenc`). Each
+Python suite shells out to the corresponding subcommand and parses
+JSON.
 
 ## Run
 
-```bash
-./bench/run_compare.sh
-```
-
-The script ensures `target/release/lethe-rs` exists (builds it if
-not), then invokes the Python harness via `uv run`. End-to-end
-runtime is dominated by the model download on first use; subsequent
-runs are ~3–5 minutes total.
-
-## What it measures
-
-1. **Cold start (3 samples each)** — `python -c "import lethe.memory_store; import lethe.encoders"` vs. `lethe-rs --version`. Reports the median wall time.
-2. **Warm retrieve (10 timed queries × 3 corpus sizes)** — for each `N ∈ {500, 5000, 20000}`, seeds a Python store with synthetic entries, then times retrieval through the Python in-process API and through `lethe-rs search` (fresh subprocess per query). Reports p50 and p95.
-
-The Rust warm path is intentionally "subprocess per query" so it captures the realistic command-line invocation pattern: every Claude Code hook firing pays a binary boot. Python's in-process number is the upper bound for what an embedded Python user sees.
-
-## Reading the output
-
-| Header | Means |
-|---|---|
-| `Cold start` | How long the implementation takes to be ready. Rust's win is mostly here — Python imports cost ~3 s, the Rust binary boots in ~0.25 s. |
-| `Warm retrieve p50` | Median of 10 retrievals at corpus size N. Includes encoder + BM25 + rerank. |
-| `p50 speedup` | `python_p50 / rust_p50`. Greater than 1 means Rust is faster. |
-
-Cross-encoder rerank is fixed cost regardless of language (ONNX Runtime is C++ either way), so the win narrows on small corpora and widens as N grows because Python's BM25 score loop is the linear-with-N piece that Rust's port displaces.
-
-## Criterion micro-benches
-
-The Rust crate ships criterion benchmarks under `crates/lethe-core/benches/`:
+One-time setup (writes `data/lme_rust/` — flat-binary mirror of the
+prepared LongMemEval data, gitignored):
 
 ```bash
-cargo bench -p lethe-core
+uv run python bench/prepare.py
 ```
 
-Useful for tracking regressions in the individual building blocks (BM25 build/score, FlatIP search, RRF merge, RIF update) without waiting for the full end-to-end harness.
+Run any suite in compare mode:
+
+```bash
+./bench/longmemeval.py --compare    # quality: NDCG@10, Recall@10
+./bench/components.py --compare     # numerical diff per component
+./bench/latency.py --compare        # cold + warm timing
+```
+
+Or single-impl, JSON to stdout:
+
+```bash
+./bench/longmemeval.py --impl python
+./bench/longmemeval.py --impl rust
+```
+
+`bench/results/COMPARE_<SUITE>_<host>_<date>.md` is the only file
+written. Intermediate JSON outputs go through `tempfile` and are
+cleaned up on exit.
+
+## What each suite measures
+
+**longmemeval** — end-to-end. Five retrieval configs (vector only,
+BM25 only, hybrid RRF, vector+xenc, lethe full), 200 sampled queries
+from LongMemEval, NDCG@10 + Recall@10. Pass: per-config
+`|ΔNDCG| ≤ 0.005` and `|ΔRecall| ≤ 0.005`. The strongest single signal.
+
+**components** — per-piece numerical diff. BM25 score vector
+(elementwise), FlatIP top-30 (id-set Jaccard), cross-encoder logits
+(elementwise). Pass: `|ΔBM25| ≤ 1e-4`, FlatIP Jaccard `≥ 0.99`,
+`|Δxenc| ≤ 1e-3`. Useful for isolating the cause when `longmemeval`
+drifts.
+
+**latency** — cold start (median of 3 fresh process boots) + warm
+retrieve (subprocess-per-query for Rust, in-process for Python) at
+corpus sizes `{500, 5000, 20000}`. Reports p50/p95 and the relative
+speedup.
+
+## Migration cutover
+
+```
+longmemeval --compare PASS                 → safe to keep developing in parallel
++ alternate seed (edit prepare.py SAMPLE_SEED) PASS  → safe for opt-in users
++ components --compare PASS                → safe to make Rust the default
++ shadow logging clean over a week         → safe to remove the Python impl
+```

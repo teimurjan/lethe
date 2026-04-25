@@ -20,7 +20,7 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use lethe_core::bm25::BM25Okapi;
 use lethe_core::encoders::CrossEncoder;
 use lethe_core::faiss_flat::FlatIp;
@@ -31,12 +31,37 @@ use ndarray::{Array2, ArrayView1};
 #[command(
     name = "lethe-bench",
     version,
-    about = "Rust LongMemEval parity bench."
+    about = "Rust parity bench. Each subcommand emits JSON to stdout in a shape the matching Python harness can diff."
 )]
 struct Cli {
     /// Path to `data/` containing longmemeval_*.json + lme_rust/.
-    #[arg(long, default_value = "data")]
+    #[arg(long, global = true, default_value = "data")]
     data: PathBuf,
+
+    #[command(subcommand)]
+    cmd: Cmd,
+}
+
+#[derive(Subcommand, Debug)]
+enum Cmd {
+    /// Run the 5 LongMemEval retrieval configs and emit NDCG/Recall as JSON.
+    Longmemeval,
+    /// BM25 score vector for each query in stdin JSON `{"queries": ["..."]}`.
+    Bm25 {
+        /// Path to JSON `{"queries": [...]}`. Use `-` for stdin.
+        #[arg(long)]
+        queries: PathBuf,
+    },
+    /// FlatIP top-K for each query embedding in stdin JSON `{"queries": [[f32...]], "k": 30}`.
+    FlatIp {
+        #[arg(long)]
+        queries: PathBuf,
+    },
+    /// Cross-encoder logits for `{"pairs": [["q","content"], ...]}`.
+    Xenc {
+        #[arg(long)]
+        pairs: PathBuf,
+    },
 }
 
 #[derive(serde::Serialize)]
@@ -53,11 +78,20 @@ struct Output {
     configs: HashMap<String, ConfigMetrics>,
 }
 
-#[allow(clippy::too_many_lines)]
 fn main() -> Result<()> {
     let cli = Cli::parse();
+    match cli.cmd {
+        Cmd::Longmemeval => cmd_longmemeval(&cli.data),
+        Cmd::Bm25 { queries } => cmd_bm25(&cli.data, &queries),
+        Cmd::FlatIp { queries } => cmd_flat_ip(&cli.data, &queries),
+        Cmd::Xenc { pairs } => cmd_xenc(&pairs),
+    }
+}
 
-    let lme_rust = cli.data.join("lme_rust");
+#[allow(clippy::too_many_lines)]
+fn cmd_longmemeval(data: &std::path::Path) -> Result<()> {
+    let cli_data = data;
+    let lme_rust = cli_data.join("lme_rust");
     let meta: serde_json::Value = serde_json::from_str(
         &std::fs::read_to_string(lme_rust.join("meta.json")).context("read meta.json")?,
     )?;
@@ -90,13 +124,13 @@ fn main() -> Result<()> {
     eprintln!("[rust] sampled {} queries", sampled.len());
 
     let qrels: HashMap<String, HashMap<String, f64>> = serde_json::from_str(
-        &std::fs::read_to_string(cli.data.join("longmemeval_qrels.json"))?,
+        &std::fs::read_to_string(cli_data.join("longmemeval_qrels.json"))?,
     )?;
     let corpus_content: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(
-        cli.data.join("longmemeval_corpus.json"),
+        cli_data.join("longmemeval_corpus.json"),
     )?)?;
     let query_texts: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(
-        cli.data.join("longmemeval_queries.json"),
+        cli_data.join("longmemeval_queries.json"),
     )?)?;
 
     eprintln!("[rust] building FAISS-equivalent FlatIp…");
@@ -319,6 +353,131 @@ fn main() -> Result<()> {
     }))?;
     println!("{json}");
     Ok(())
+}
+
+// -------- component subcommands ---------------------------------------------
+//
+// These exist so `bench/components.py` can ask the Rust core for a single
+// piece of the pipeline (BM25 score vector, FlatIP top-K, cross-encoder
+// logits) and diff it against the Python reference numerically.
+
+fn load_corpus_for_components(data: &std::path::Path) -> Result<(Vec<String>, Array2<f32>)> {
+    let lme_rust = data.join("lme_rust");
+    let meta: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(lme_rust.join("meta.json")).context("meta.json")?,
+    )?;
+    let n_corpus = meta["n_corpus"].as_u64().unwrap() as usize;
+    let dim = meta["dim"].as_u64().unwrap() as usize;
+    let ids: Vec<String> = std::fs::read_to_string(lme_rust.join("corpus_ids.txt"))?
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let embs = read_f32_matrix(&lme_rust.join("corpus_embeddings.bin"), n_corpus, dim)?;
+    Ok((ids, embs))
+}
+
+#[derive(serde::Deserialize)]
+struct QueriesInput {
+    queries: Vec<String>,
+}
+
+fn cmd_bm25(data: &std::path::Path, queries_path: &std::path::Path) -> Result<()> {
+    let input: QueriesInput = serde_json::from_str(&read_input(queries_path)?)?;
+    let (corpus_ids, _embs) = load_corpus_for_components(data)?;
+    let corpus_content: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(
+        data.join("longmemeval_corpus.json"),
+    )?)?;
+    let tokenized: Vec<Vec<String>> = corpus_ids
+        .iter()
+        .map(|cid| tokenize_bm25(corpus_content.get(cid).map_or("", String::as_str)))
+        .collect();
+    let bm25 = BM25Okapi::new(&tokenized);
+    // Per query: emit the f32 score vector. Python diffs element-wise.
+    let mut out = Vec::with_capacity(input.queries.len());
+    for q in &input.queries {
+        let scores = bm25.get_scores(&tokenize_bm25(q));
+        out.push(scores);
+    }
+    let payload = serde_json::json!({
+        "impl": "rust",
+        "n_queries": input.queries.len(),
+        "n_corpus": corpus_ids.len(),
+        "scores": out,
+    });
+    println!("{}", serde_json::to_string(&payload)?);
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct EmbeddingQueriesInput {
+    /// Indices into `query_embeddings.bin`. Avoids serializing 384-d
+    /// vectors as JSON which is slow and lossy at f32 precision.
+    query_indices: Vec<usize>,
+    k: usize,
+}
+
+fn cmd_flat_ip(data: &std::path::Path, queries_path: &std::path::Path) -> Result<()> {
+    let input: EmbeddingQueriesInput = serde_json::from_str(&read_input(queries_path)?)?;
+    let (corpus_ids, corpus_embs) = load_corpus_for_components(data)?;
+    let lme_rust = data.join("lme_rust");
+    let meta: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(lme_rust.join("meta.json"))?)?;
+    let n_queries = meta["n_queries"].as_u64().unwrap() as usize;
+    let dim = meta["dim"].as_u64().unwrap() as usize;
+    let query_embs = read_f32_matrix(&lme_rust.join("query_embeddings.bin"), n_queries, dim)?;
+    let mut flat = FlatIp::new(dim);
+    flat.add_batch(corpus_embs.view())?;
+    let mut out = Vec::with_capacity(input.query_indices.len());
+    for &qi in &input.query_indices {
+        let qe = query_embs.row(qi);
+        let top: Vec<(String, f32)> = flat
+            .search(qe, input.k)?
+            .into_iter()
+            .map(|(idx, score)| (corpus_ids[idx].clone(), score))
+            .collect();
+        out.push(top);
+    }
+    let payload = serde_json::json!({
+        "impl": "rust",
+        "k": input.k,
+        "results": out,
+    });
+    println!("{}", serde_json::to_string(&payload)?);
+    Ok(())
+}
+
+#[derive(serde::Deserialize)]
+struct PairsInput {
+    pairs: Vec<(String, String)>,
+}
+
+fn cmd_xenc(pairs_path: &std::path::Path) -> Result<()> {
+    let input: PairsInput = serde_json::from_str(&read_input(pairs_path)?)?;
+    let xenc = CrossEncoder::from_repo("Xenova/ms-marco-MiniLM-L-6-v2")
+        .map_err(|e| anyhow!("cross-encoder: {e}"))?;
+    let pairs_ref: Vec<(&str, &str)> = input
+        .pairs
+        .iter()
+        .map(|(a, b)| (a.as_str(), b.as_str()))
+        .collect();
+    let scores = xenc.predict(&pairs_ref).map_err(|e| anyhow!("predict: {e}"))?;
+    let payload = serde_json::json!({
+        "impl": "rust",
+        "n_pairs": input.pairs.len(),
+        "logits": scores,
+    });
+    println!("{}", serde_json::to_string(&payload)?);
+    Ok(())
+}
+
+fn read_input(path: &std::path::Path) -> Result<String> {
+    if path == std::path::Path::new("-") {
+        let mut buf = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut buf)?;
+        Ok(buf)
+    } else {
+        Ok(std::fs::read_to_string(path)?)
+    }
 }
 
 fn read_f32_matrix(path: &std::path::Path, rows: usize, cols: usize) -> Result<Array2<f32>> {
