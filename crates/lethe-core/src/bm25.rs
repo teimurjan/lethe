@@ -1,5 +1,5 @@
 //! BM25Okapi port — bit-faithful to `rank_bm25.BM25Okapi` as used by
-//! `src/lethe/vectors.py`.
+//! `legacy/lethe/vectors.py`.
 //!
 //! The `rank_bm25` reference uses these defaults:
 //! * `k1 = 1.5`

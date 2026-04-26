@@ -1,4 +1,4 @@
-//! File lock — port of `src/lethe/_lock.py`.
+//! File lock — port of `legacy/lethe/_lock.py`.
 //!
 //! Mirrors the polling semantics of the Python helper: try to acquire
 //! an exclusive lock non-blockingly, sleep 50 ms between retries, fail

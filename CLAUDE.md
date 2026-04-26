@@ -17,22 +17,27 @@ Ships as a **Claude Code plugin** (`plugins/claude-code/`) that drops a `.lethe/
 ## layout
 
 ```
-src/lethe/            # Production library (168 tests)
-├── memory_store.py   # Main API: MemoryStore
-├── markdown_store.py # Markdown chunker (##/### headings, content hashes)
-├── cli.py            # `lethe` CLI: index/search/expand/status/config/reset/enrich/projects/tui
-├── tui.py            # Textual-based interactive browser (optional `[tui]` extra)
-├── union_store.py    # Read-only cross-project search via DuckDB ATTACH
-├── db.py             # DuckDB persistence (lethe.duckdb, unlimited ATTACH)
-├── vectors.py        # FAISS + BM25 index management
-├── reranker.py       # Cross-encoder + adaptive depth
-├── rif.py            # Retrieval-Induced Forgetting (clustered + gap)
-├── enrichment.py     # Optional LLM write-time enrichment (Anthropic SDK)
-├── dedup.py          # Hash + cosine deduplication
-├── encoders.py       # ONNX bi-encoder + cross-encoder adapters (fastembed)
-├── _lock.py          # fcntl-based per-project lock for concurrent CLI calls
-├── _registry.py      # ~/.lethe/projects.json for cross-project search
-└── entry.py          # MemoryEntry dataclass + Tier enum
+crates/               # Rust workspace (production)
+├── lethe-core/       # Library: tokenize, bm25, faiss_flat, rrf, dedup, rif,
+│                     #   kmeans, encoders, db, memory_store, union_store, …
+├── lethe-cli/        # `lethe-rs` binary (clap)
+├── lethe-tui/        # `lethe-tui` binary (ratatui)
+├── lethe-py/         # PyO3 bindings (importable as `lethe_rust`)
+├── lethe-node/       # napi-rs bindings (`@lethe/memory-rust`)
+└── lethe-bench/      # parity bench helper binary
+
+benchmarks/           # Python ↔ Rust parity bench (1-1)
+├── prepare.py        # exports LongMemEval flat files for the Rust side
+├── longmemeval.py    # NDCG@10 / Recall@10 across 5 retrieval configs
+├── components.py     # BM25 / FlatIP / xenc per-component numerical diff
+├── latency.py        # cold-start + warm-retrieve at 500/5k/20k corpus
+└── results/          # COMPARE_*_<host>_<date>.md
+
+legacy/               # Pre-Rust Python implementation (kept for research trail)
+├── pyproject.toml    # `uv pip install -e legacy/`
+├── lethe/            # Production library (178 tests) — same API, still ships
+└── benchmarks/       # Per-checkpoint research benchmarks (run_rif_*, etc.)
+└── tests/            # Pytest suite (178 + 8 PyO3 parity = 186)
 
 plugins/claude-code/  # Claude Code plugin
 ├── hooks/            # SessionStart / UserPromptSubmit / Stop / SessionEnd
@@ -43,27 +48,30 @@ plugins/claude-code/  # Claude Code plugin
 
 .claude-plugin/       # Marketplace manifest (for `/plugin marketplace add`)
 
-benchmarks/           # Per-checkpoint benchmark scripts
-├── run_*.py
-├── _lib/             # Benchmark-only helpers (metrics, NDCG/recall)
-└── results/          # Raw per-run output markdowns
-
 scripts/              # Reproducibility utilities (dataset prep, enrichment runner)
 
 research/             # Experimental / non-production code
 ├── gc_mutation/      # Germinal-center mutation thread (checkpoints 1-10)
 └── sdm/              # Sparse Distributed Memory prototype (checkpoint 15)
-
-tests/                # Production unit tests
 ```
 
 ## commands
 
 ```bash
-uv venv --python 3.12 && uv pip install -e .
-uv run pytest tests/ -v
-uv run python experiments/data_prep.py --dataset longmemeval
-uv run python benchmarks/run_benchmark.py
+# Python (legacy package — still the production surface today)
+uv venv --python 3.12 && uv pip install -e legacy/
+cd legacy && uv run pytest tests/ -v
+uv run python legacy/benchmarks/run_benchmark.py
+
+# Rust port
+cargo build --workspace --release
+cargo test --workspace
+
+# Python ↔ Rust parity bench
+uv run python benchmarks/prepare.py
+uv run python benchmarks/longmemeval.py --compare
+uv run python benchmarks/components.py --compare
+uv run python benchmarks/latency.py --compare
 
 # CLI (exposed as console script `lethe`)
 lethe index                              # reindex .lethe/memory (auto-registers project)
@@ -82,7 +90,7 @@ uvx --from git+https://github.com/teimurjan/lethe lethe --version
 
 - BM25 + FAISS hybrid retrieval (BM25 is the strongest single signal on conversation data)
 - Cross-encoder reranking on the merged candidate pool
-- Adaptive search depth: shallow k=30 for confident queries, deep k=100 when unsure (LongMemEval sweep at `benchmarks/results/BENCHMARKS_DEEP_PASS.md` shows NDCG@10 is flat past rank 100, so the previous k=200 was pure rerank overhead)
+- Adaptive search depth: shallow k=30 for confident queries, deep k=100 when unsure (LongMemEval sweep at `legacy/benchmarks/results/BENCHMARKS_DEEP_PASS.md` shows NDCG@10 is flat past rank 100, so the previous k=200 was pure rerank overhead)
 - Cosine 0.95 dedup on add (removes 4.6% of LongMemEval, +6.5% NDCG)
 - Tier lifecycle: naive → gc → memory (with decay and apoptosis)
 - RIF: retrieval-induced forgetting suppresses chronic false positives at candidate selection stage
@@ -101,7 +109,7 @@ LongMemEval S (200k turns, 500 questions, 200-query eval sample):
 
 The 0.3817 is from BM25+vector+cross-encoder reranking (standard IR). The GC mechanism does not improve this number. Verified with integrity checks.
 
-BM25 tokenizer was upgraded from `lower().split()` to a regex word-tokenizer on 2026-04-24 (previous headline: 0.3680 → 0.3817, +1.37pp; BM25-only: 0.2420 → 0.3171, +7.51pp). See [benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md](benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md).
+BM25 tokenizer was upgraded from `lower().split()` to a regex word-tokenizer on 2026-04-24 (previous headline: 0.3680 → 0.3817, +1.37pp; BM25-only: 0.2420 → 0.3171, +7.51pp). See [legacy/benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md](legacy/benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md).
 
 ## research status
 

@@ -1,4 +1,4 @@
-//! DuckDB persistence — port of `src/lethe/db.py`. Schema is held
+//! DuckDB persistence — port of `legacy/lethe/db.py`. Schema is held
 //! bit-identical so a Python-written index opens cleanly under Rust
 //! and vice versa.
 //!

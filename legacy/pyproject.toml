@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "lethe-memory"
 version = "0.6.0" # x-release-please-version
 description = "Self-improving memory store for LLM agents: hybrid retrieval, clustered retrieval-induced forgetting, optional LLM enrichment"
-readme = "README.md"
+readme = "../README.md"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
@@ -21,7 +21,7 @@ dependencies = [
 [project.optional-dependencies]
 # sentence-transformers/torch live here because benchmark scripts construct
 # them directly for reproducibility with published NDCG numbers. The CLI +
-# plugin path uses the ONNX-backed `fastembed` adapter in src/lethe/encoders.py.
+# plugin path uses the ONNX-backed `fastembed` adapter in lethe/encoders.py.
 benchmarks = ["beir>=2.0", "datasets>=2.0", "matplotlib>=3.7", "tqdm>=4.60", "sentence-transformers>=2.0"]
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "mypy>=1.0"]
 tui = ["textual>=0.80"]
@@ -30,7 +30,7 @@ tui = ["textual>=0.80"]
 lethe = "lethe.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/lethe"]
+packages = ["lethe"]
 
 [tool.mypy]
 strict = true

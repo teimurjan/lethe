@@ -1,4 +1,4 @@
-//! Markdown chunker — port of `src/lethe/markdown_store.py`.
+//! Markdown chunker — port of `legacy/lethe/markdown_store.py`.
 //!
 //! Splits `.md` files on `##` / `###` headings (top-level `#` is a
 //! file title and is NOT a chunk separator). Drops sections that are

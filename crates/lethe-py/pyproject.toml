@@ -6,7 +6,6 @@ build-backend = "maturin"
 name = "lethe-rust"
 version = "0.1.0"
 description = "PyO3 bindings to the Rust port of lethe."
-readme = "README.md"
 requires-python = ">=3.9"
 license = { text = "MIT" }
 

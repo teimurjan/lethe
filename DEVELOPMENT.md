@@ -4,22 +4,24 @@
 
 ```bash
 uv venv --python 3.12
-uv pip install -e '.[dev,tui]'
+uv pip install -e 'legacy/[dev,tui]'
 ```
 
 `dev` pulls pytest + mypy; `tui` pulls textual (needed only for `lethe tui`). Drop `tui` if you don't need it.
 
+The Python implementation lives under `legacy/` after the Rust port; see `crates/` for the Rust workspace and `benchmarks/` for the Python ↔ Rust parity bench.
+
 ## Run tests
 
 ```bash
-uv run pytest tests/ -q
+cd legacy && uv run pytest tests/ -q
 ```
 
-168 tests, ~2 seconds. No network, no API keys required.
+178 Python tests + 8 PyO3 parity tests = 186, ~3 minutes (PyO3 set loads ONNX models). The pure-Python set runs in ~2 seconds. No network, no API keys required.
 
 ## Run the CLI locally
 
-The editable install wires `lethe` to `src/lethe/cli.py`. Two ways to invoke it:
+The editable install wires `lethe` to `legacy/lethe/cli.py`. Two ways to invoke it:
 
 ```bash
 uv run lethe search "query"     # uses the project's .venv — always current
@@ -28,7 +30,7 @@ uv run lethe search "query"     # uses the project's .venv — always current
 …or install the working tree as your global `lethe` so you can just type `lethe` anywhere:
 
 ```bash
-uv tool install --force --editable . --with 'textual>=0.80'
+uv tool install --force --editable ./legacy --with 'textual>=0.80'
 lethe tui
 ```
 

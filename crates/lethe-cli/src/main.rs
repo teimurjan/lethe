@@ -1,6 +1,6 @@
 //! `lethe-rs` — Rust counterpart to the Python `lethe` CLI.
 //!
-//! Subcommands match `src/lethe/cli.py` byte-for-byte on their JSON
+//! Subcommands match `legacy/lethe/cli.py` byte-for-byte on their JSON
 //! outputs; the Claude Code plugin scripts parse stdout, so any drift
 //! breaks them. See the porting plan
 //! (`.claude/plans/functional-herding-boot.md`) for the contract.

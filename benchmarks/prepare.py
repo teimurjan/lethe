@@ -85,5 +85,5 @@ def main(argv: list[str]) -> int:
 
 
 if __name__ == "__main__":
-    sys.path.insert(0, str(DATA.parent / "bench"))  # for _lib import when run directly
+    sys.path.insert(0, str(DATA.parent / "benchmarks"))  # for _lib import when run directly
     sys.exit(main(sys.argv[1:]))

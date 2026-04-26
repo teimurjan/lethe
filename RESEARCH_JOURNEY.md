@@ -319,7 +319,7 @@ Enriched 975 entries (first 1000 of the ~10k answer-relevant set), covering 15% 
 
 ### Checkpoint 18 — Bootstrap CIs, permutation tests, and NFCorpus replication
 
-Before claiming "clustered RIF improves retrieval" in the arXiv writeup, we re-ran the checkpoint-13 benchmark with per-query NDCG arrays persisted (`benchmarks/run_rif_gap.py` patched to dump `rif_gap_per_query.json`), then computed 95% bootstrap percentile CIs (10k resamples) and two-sided paired permutation test p-values (10k permutations) via `benchmarks/bootstrap_rif_gap_ci.py`.
+Before claiming "clustered RIF improves retrieval" in the arXiv writeup, we re-ran the checkpoint-13 benchmark with per-query NDCG arrays persisted (`legacy/benchmarks/run_rif_gap.py` patched to dump `rif_gap_per_query.json`), then computed 95% bootstrap percentile CIs (10k resamples) and two-sided paired permutation test p-values (10k permutations) via `legacy/benchmarks/bootstrap_rif_gap_ci.py`.
 
 **LongMemEval S, 500-query eval, same 5000-step burn-in:**
 
@@ -353,7 +353,7 @@ Before claiming "clustered RIF improves retrieval" in the arXiv writeup, we re-r
 
 **Conclusion:** the mechanism is workload-specific. It targets the chronic-false-positive pattern characteristic of a single user's accumulating long-term conversation memory, and actively hurts on ad-hoc retrieval where that pattern does not exist. The arXiv paper (`arxiv/paper.tex`, §5.3) documents this scope explicitly; public write-ups (`writeup/post_v2.md`, `writeup/launch_posts.md`) reflect the narrower claim.
 
-Artifacts: `benchmarks/results/rif_gap_per_query.json`, `benchmarks/results/rif_gap_per_query_nfcorpus.json`, `benchmarks/results/rif_gap_ci.md`, `benchmarks/results/rif_gap_nfcorpus_ci.md`.
+Artifacts: `legacy/benchmarks/results/rif_gap_per_query.json`, `legacy/benchmarks/results/rif_gap_per_query_nfcorpus.json`, `legacy/benchmarks/results/rif_gap_ci.md`, `legacy/benchmarks/results/rif_gap_nfcorpus_ci.md`.
 
 ---
 
@@ -396,7 +396,7 @@ The 4.9× win on synthetic text inverts to a ~4× regression on real conversatio
 
 We did not complete the NDCG arm (killed at ~20% of corpus re-embed once the throughput inversion made the speed premise moot). The quality question is open, but there's no speed incentive to answer it on this workload.
 
-Reproducer: `benchmarks/run_int8.py`. Raw table: `benchmarks/results/BENCHMARKS_INT8.md`.
+Reproducer: `legacy/benchmarks/run_int8.py`. Raw table: `legacy/benchmarks/results/BENCHMARKS_INT8.md`.
 
 **2. CoreML execution provider on Apple Silicon.** Hypothesis: route onnxruntime through the Neural Engine / Metal via `providers=["CoreMLExecutionProvider", "CPUExecutionProvider"]`.
 
@@ -430,7 +430,7 @@ LongMemEval S, 100-query random sample (seed 0), full production pipeline (BM25 
 
 `k_deep=60` is cheaper still but costs 1.1 pp NDCG, above the noise floor — rejected. If a user ever reports a query pattern where 100 is insufficient, the knob is exposed on the `MemoryStore` / `UnionStore` constructors.
 
-Reproducer: `benchmarks/run_deep_pass.py`. Raw table: `benchmarks/results/BENCHMARKS_DEEP_PASS.md`.
+Reproducer: `legacy/benchmarks/run_deep_pass.py`. Raw table: `legacy/benchmarks/results/BENCHMARKS_DEEP_PASS.md`.
 
 ### Implementation note: BM25 tokenizer (`lower().split()` → regex word-tokens)
 
@@ -450,7 +450,7 @@ Two non-obvious results:
 
 On the full 200-query headline benchmark the swap lifted the production pipeline from **0.3680 → 0.3817 NDCG@10** (BM25-only jumped 0.2420 → 0.3171). Bigger single-lever quality win than clustered-RIF on the same corpus, measured on the same eval sample. The lift is punctuation-only — the 200k conversational turns are heavy on trailing `?`, `.`, contractions, and hook-written session anchors that previously didn't tokenize cleanly.
 
-Reproducer: `benchmarks/run_bm25_tokenizer.py`. Raw table: `benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md`.
+Reproducer: `legacy/benchmarks/run_bm25_tokenizer.py`. Raw table: `legacy/benchmarks/results/BENCHMARKS_BM25_TOKENIZER.md`.
 
 #### Downstream effect on RIF: absolute gains up, relative gains halved
 
@@ -471,7 +471,7 @@ Two findings, both expected under a "better base leaves less to recover" mental 
 
 Significance testing (paired permutation, bootstrap CI) from checkpoint 18 was on the old tokenizer. The clustered-RIF claim is expected to survive re-testing (absolute effect size did not collapse), but that hasn't been re-verified.
 
-Reproducer: `benchmarks/run_rif_clustered.py`. Raw table: `benchmarks/results/BENCHMARKS_RIF_CLUSTERED.md`.
+Reproducer: `legacy/benchmarks/run_rif_clustered.py`. Raw table: `legacy/benchmarks/results/BENCHMARKS_RIF_CLUSTERED.md`.
 
 ---
 

@@ -1,6 +1,6 @@
 # Cargo workspace for the Rust port of `lethe`.
 #
-# The Python implementation under `src/lethe/` remains the reference and
+# The Python implementation under `legacy/lethe/` remains the reference and
 # continues to ship; this workspace lives alongside it. See plan in
 # .claude/plans/functional-herding-boot.md for the porting contract.
 

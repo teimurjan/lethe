@@ -69,7 +69,7 @@ Checkpoints 11–13. All on 500-query full eval, 5000-step burn-in. Re-measured 
 
 ¹ Production default config. 10-clusters beat 30-clusters on NDCG (+4.0% vs +3.4%) on this single run; recommend a proper sweep with confidence intervals before considering a default change — CIs likely overlap given n=500.
 
-Default config for the production row: `alpha=0.3`, `suppression_rate=0.1`, `reinforcement_rate=0.05`, `decay_lambda=0.005`, `n_clusters=30`, `use_rank_gap=True`. Reproducer: `benchmarks/run_rif_clustered.py`. Stat-significance tests (paired permutation, bootstrap CI) from checkpoint 18 were on the old tokenizer; results with the new tokenizer have not been re-verified for significance.
+Default config for the production row: `alpha=0.3`, `suppression_rate=0.1`, `reinforcement_rate=0.05`, `decay_lambda=0.005`, `n_clusters=30`, `use_rank_gap=True`. Reproducer: `legacy/benchmarks/run_rif_clustered.py`. Stat-significance tests (paired permutation, bootstrap CI) from checkpoint 18 were on the old tokenizer; results with the new tokenizer have not been re-verified for significance.
 
 **Mechanism**: entries that make the candidate pool but lose to the cross-encoder accumulate a per-cluster suppression score. On subsequent retrievals in the same query cluster, suppression penalizes RRF scores before the cross-encoder sees them.
 - **Clustered**: `{entry_id → {cluster_id → float}}` instead of `{entry_id → float}`. An entry suppressed for "travel" queries stays available for "food" queries.
@@ -170,23 +170,23 @@ Running either side under a shared methodology is a separate experiment that has
 uv run python experiments/data_prep.py --dataset longmemeval
 
 # Retrieval-only
-uv run python benchmarks/run_benchmark.py          # checkpoint 10 baselines
-uv run python benchmarks/run_rif_benchmark.py      # checkpoint 11 (global RIF)
-uv run python benchmarks/run_rif_clustered.py      # checkpoint 12
-uv run python benchmarks/run_rif_gap.py            # checkpoint 13 (best retrieval-only)
-uv run python benchmarks/run_rif_extended_metrics.py  # checkpoint 16
+uv run python legacy/benchmarks/run_benchmark.py          # checkpoint 10 baselines
+uv run python legacy/benchmarks/run_rif_benchmark.py      # checkpoint 11 (global RIF)
+uv run python legacy/benchmarks/run_rif_clustered.py      # checkpoint 12
+uv run python legacy/benchmarks/run_rif_gap.py            # checkpoint 13 (best retrieval-only)
+uv run python legacy/benchmarks/run_rif_extended_metrics.py  # checkpoint 16
 
 # LLM enrichment (needs ANTHROPIC_API_KEY)
 export ANTHROPIC_API_KEY=sk-ant-...
 uv run python experiments/enrich_longmemeval.py    # ~$16 for 10k entries
-uv run python benchmarks/run_rif_enriched.py       # checkpoint 17 (3-arm)
+uv run python legacy/benchmarks/run_rif_enriched.py       # checkpoint 17 (3-arm)
 
 # Statistical rigor + cross-dataset scope (checkpoint 18)
-uv run python benchmarks/bootstrap_rif_gap_ci.py   # LongMemEval CIs + perm tests
-uv run python benchmarks/run_rif_gap_nfcorpus.py   # NFCorpus replication (~25 min)
-uv run python benchmarks/bootstrap_rif_gap_ci.py \
-    --input  benchmarks/results/rif_gap_per_query_nfcorpus.json \
-    --output benchmarks/results/rif_gap_nfcorpus_ci.md
+uv run python legacy/benchmarks/bootstrap_rif_gap_ci.py   # LongMemEval CIs + perm tests
+uv run python legacy/benchmarks/run_rif_gap_nfcorpus.py   # NFCorpus replication (~25 min)
+uv run python legacy/benchmarks/bootstrap_rif_gap_ci.py \
+    --input  legacy/benchmarks/results/rif_gap_per_query_nfcorpus.json \
+    --output legacy/benchmarks/results/rif_gap_nfcorpus_ci.md
 ```
 
-Raw per-run outputs from each benchmark script are checked into `benchmarks/results/` for auditability.
+Raw per-run outputs from each benchmark script are checked into `legacy/benchmarks/results/` for auditability.

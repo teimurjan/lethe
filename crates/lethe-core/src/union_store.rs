@@ -1,5 +1,5 @@
 //! Cross-project read-only retrieval — port of
-//! `src/lethe/union_store.py`.
+//! `legacy/lethe/union_store.py`.
 //!
 //! For each registered project: opens the per-project DuckDB read-only
 //! (so the per-project hook writers can keep mutating freely), fans

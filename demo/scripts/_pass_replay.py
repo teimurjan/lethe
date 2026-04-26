@@ -28,8 +28,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 DEMO = HERE.parent
 REPO = DEMO.parent
-sys.path.insert(0, str(REPO / "src"))
-sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "legacy"))
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 

@@ -2,7 +2,7 @@
 //!
 //! See [the porting plan](../../../.claude/plans/functional-herding-boot.md)
 //! for the contract this crate honors against the Python reference at
-//! `src/lethe/`.
+//! `legacy/lethe/`.
 
 #![deny(rust_2018_idioms)]
 #![warn(clippy::all)]

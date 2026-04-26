@@ -1,4 +1,4 @@
-//! BM25 tokenizer — direct port of `src/lethe/vectors.py::tokenize_bm25`.
+//! BM25 tokenizer — direct port of `legacy/lethe/vectors.py::tokenize_bm25`.
 //!
 //! The Python reference is a regex word tokenizer that lowercases input
 //! and extracts `[A-Za-z0-9_]+` runs. The shipping benchmark

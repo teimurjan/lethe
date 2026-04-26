@@ -460,7 +460,9 @@ fn cmd_xenc(pairs_path: &std::path::Path) -> Result<()> {
         .iter()
         .map(|(a, b)| (a.as_str(), b.as_str()))
         .collect();
-    let scores = xenc.predict(&pairs_ref).map_err(|e| anyhow!("predict: {e}"))?;
+    let scores = xenc
+        .predict(&pairs_ref)
+        .map_err(|e| anyhow!("predict: {e}"))?;
     let payload = serde_json::json!({
         "impl": "rust",
         "n_pairs": input.pairs.len(),

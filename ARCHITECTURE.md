@@ -17,7 +17,7 @@ Query
                     └── Update suppression state, affinities, tier
 ```
 
-**Optional write-time LLM enrichment layer** (`src/lethe/enrichment.py`): before indexing, each memory can be processed by an LLM (default `claude-haiku-4-5`) to produce a gist, 3 anticipated queries, entities, and temporal markers. All fields index alongside the original text; cross-encoder still scores against original. Attacks the vocabulary-mismatch failure mode.
+**Optional write-time LLM enrichment layer** (`legacy/lethe/enrichment.py`): before indexing, each memory can be processed by an LLM (default `claude-haiku-4-5`) to produce a gist, 3 anticipated queries, entities, and temporal markers. All fields index alongside the original text; cross-encoder still scores against original. Attacks the vocabulary-mismatch failure mode.
 
 ## RIF: technical details
 

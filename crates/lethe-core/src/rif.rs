@@ -1,4 +1,4 @@
-//! Retrieval-Induced Forgetting — port of `src/lethe/rif.py`.
+//! Retrieval-Induced Forgetting — port of `legacy/lethe/rif.py`.
 //!
 //! Two formulas:
 //! * Original (`competition_strength`): `rank_score · sigmoid(-xenc)` where

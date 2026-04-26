@@ -1,4 +1,4 @@
-//! `MemoryEntry` and `Tier` — port of `src/lethe/entry.py`.
+//! `MemoryEntry` and `Tier` — port of `legacy/lethe/entry.py`.
 //!
 //! The Python reference holds three embedding fields per entry
 //! (`base_embedding`, `embedding`, `adapter`) for the retired

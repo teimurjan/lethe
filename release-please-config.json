@@ -6,8 +6,8 @@
       "package-name": "lethe-memory",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
-        "src/lethe/__init__.py",
-        "pyproject.toml",
+        "legacy/lethe/__init__.py",
+        "legacy/pyproject.toml",
         {
           "type": "json",
           "path": ".claude-plugin/marketplace.json",

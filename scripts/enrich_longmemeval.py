@@ -23,7 +23,7 @@ from pathlib import Path
 DATA = Path("data")
 
 # Ensure lethe is importable when run from repo root.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "legacy"))
 
 from lethe.enrichment import enrich_dataset, EnrichmentStats  # noqa: E402
 

@@ -1,4 +1,4 @@
-//! Per-user project registry — port of `src/lethe/_registry.py`.
+//! Per-user project registry — port of `legacy/lethe/_registry.py`.
 //!
 //! The registry lives at `~/.lethe/projects.json` and lists every
 //! project (identified by absolute root path + `slug = p_<sanitized>_<sha1[:8]>`)

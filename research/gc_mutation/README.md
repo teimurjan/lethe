@@ -17,7 +17,7 @@ Archived research code from checkpoints 1-10 of the lethe research journey: the 
 
 ## Status
 
-None of this is reachable from `src/lethe.MemoryStore`. The research thread concluded that the GC mutation loop doesn't improve retrieval quality (see `RESEARCH_JOURNEY.md` checkpoints 1-10). The genuinely productive threads — RIF (checkpoints 11-13) and LLM enrichment (checkpoint 17) — live in `src/lethe/`.
+None of this is reachable from `legacy/lethe.MemoryStore`. The research thread concluded that the GC mutation loop doesn't improve retrieval quality (see `RESEARCH_JOURNEY.md` checkpoints 1-10). The genuinely productive threads — RIF (checkpoints 11-13) and LLM enrichment (checkpoint 17) — live in `legacy/lethe/`.
 
 ## Running
 

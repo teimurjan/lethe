@@ -58,11 +58,11 @@ def time_rust_cold(rs_cli: str, n: int = 3) -> list[float]:
 
 
 def seed_python_store(path: Path, n_entries: int) -> None:
-    sys.path.insert(0, str(REPO))
+    sys.path.insert(0, str(REPO / "legacy"))
     from lethe.encoders import OnnxBiEncoder, OnnxCrossEncoder  # noqa: PLC0415
     from lethe.memory_store import MemoryStore  # noqa: PLC0415
 
-    bi = OnnxBiEncoder("Xenova/all-MiniLM-L6-v2")
+    bi = OnnxBiEncoder("sentence-transformers/all-MiniLM-L6-v2")
     xenc = OnnxCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2")
     store = MemoryStore(
         path,
@@ -81,11 +81,11 @@ def warm_queries() -> list[str]:
 
 
 def time_python_warm(path: Path) -> tuple[float, float]:
-    sys.path.insert(0, str(REPO))
+    sys.path.insert(0, str(REPO / "legacy"))
     from lethe.encoders import OnnxBiEncoder, OnnxCrossEncoder  # noqa: PLC0415
     from lethe.memory_store import MemoryStore  # noqa: PLC0415
 
-    bi = OnnxBiEncoder("Xenova/all-MiniLM-L6-v2")
+    bi = OnnxBiEncoder("sentence-transformers/all-MiniLM-L6-v2")
     xenc = OnnxCrossEncoder("Xenova/ms-marco-MiniLM-L-6-v2")
     store = MemoryStore(
         path, bi_encoder=bi, cross_encoder=xenc, dim=bi.get_embedding_dimension()

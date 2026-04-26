@@ -95,8 +95,8 @@ fn build_session(onnx_path: &std::path::Path) -> Result<Session, Error> {
 const MODEL_MAX_LEN: usize = 512;
 
 fn load_tokenizer(path: &std::path::Path) -> Result<Tokenizer, Error> {
-    let mut tok = Tokenizer::from_file(path)
-        .map_err(|e| Error::Encoder(format!("tokenizer.json: {e}")))?;
+    let mut tok =
+        Tokenizer::from_file(path).map_err(|e| Error::Encoder(format!("tokenizer.json: {e}")))?;
     tok.with_truncation(Some(tokenizers::TruncationParams {
         max_length: MODEL_MAX_LEN,
         // `LongestFirst` matches HuggingFace transformers' default for

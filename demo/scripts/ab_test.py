@@ -17,8 +17,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent.parent
-sys.path.insert(0, str(REPO / "src"))
-sys.path.insert(0, str(REPO))
+sys.path.insert(0, str(REPO / "legacy"))
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 import faiss  # noqa: E402 — before torch

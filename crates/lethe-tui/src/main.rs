@@ -1,4 +1,4 @@
-//! `lethe-tui` — ratatui counterpart to `src/lethe/tui.py`.
+//! `lethe-tui` — ratatui counterpart to `legacy/lethe/tui.py`.
 //!
 //! Layout:
 //!   ┌── lethe ─── › <scope> ─────────────────────────────┐
