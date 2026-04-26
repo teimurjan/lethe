@@ -28,18 +28,25 @@ const DEFAULT_EPSILON: f32 = 0.25;
 
 /// Inverted-index BM25 over a fixed corpus.
 ///
+/// Internals are `f64` to match `rank_bm25`'s numpy-default precision —
+/// the Python reference accumulates per-doc scores in a `np.float64`
+/// vector and using `f32` here was costing ~0.005 NDCG@10 on
+/// LongMemEval purely from accumulation drift over 200k documents.
+/// `get_scores` casts down to `f32` at the end so the public API and
+/// downstream FAISS-flat path stay homogeneous.
+///
 /// Memory layout:
 /// * `doc_freqs`: per-doc term-frequency map (sparse, keyed by token).
 /// * `doc_len`: per-doc length (token count).
-/// * `idf`: per-term IDF, with negative-IDF clipping pre-applied.
+/// * `idf`: per-term IDF (f64), with negative-IDF clipping pre-applied.
 #[derive(Debug, Clone)]
 pub struct BM25Okapi {
-    k1: f32,
-    b: f32,
-    avgdl: f32,
+    k1: f64,
+    b: f64,
+    avgdl: f64,
     doc_freqs: Vec<HashMap<String, u32>>,
     doc_len: Vec<u32>,
-    idf: HashMap<String, f32>,
+    idf: HashMap<String, f64>,
 }
 
 impl BM25Okapi {
@@ -53,6 +60,9 @@ impl BM25Okapi {
     }
 
     pub fn with_params(corpus: &[Vec<String>], k1: f32, b: f32, epsilon: f32) -> Self {
+        let k1 = f64::from(k1);
+        let b = f64::from(b);
+        let epsilon = f64::from(epsilon);
         let n = corpus.len();
         let mut doc_freqs: Vec<HashMap<String, u32>> = Vec::with_capacity(n);
         let mut doc_len: Vec<u32> = Vec::with_capacity(n);
@@ -72,10 +82,10 @@ impl BM25Okapi {
             doc_freqs.push(freqs);
         }
 
-        let avgdl = if n == 0 {
+        let avgdl: f64 = if n == 0 {
             0.0
         } else {
-            total_len as f32 / n as f32
+            total_len as f64 / n as f64
         };
 
         let idf = compute_idf(&nd, n, epsilon);
@@ -103,36 +113,38 @@ impl BM25Okapi {
     /// any document) contribute zero — matching the Python `idf.get(q) or 0`.
     pub fn get_scores(&self, query: &[String]) -> Vec<f32> {
         let n = self.doc_freqs.len();
-        let mut scores = vec![0.0_f32; n];
         if n == 0 || query.is_empty() {
-            return scores;
+            return vec![0.0_f32; n];
         }
+        // Accumulate in f64 to match `rank_bm25` (numpy default), then
+        // cast the public output to f32. Without this we drift ~5e-3
+        // on NDCG@10 vs the Python reference at 200k corpus.
+        let mut scores = vec![0.0_f64; n];
         for q in query {
             let Some(&idf) = self.idf.get(q) else {
                 continue;
             };
-            // Inner-loop: per-doc contribution.
             for (i, freqs) in self.doc_freqs.iter().enumerate() {
-                let tf = *freqs.get(q).unwrap_or(&0) as f32;
+                let tf = f64::from(*freqs.get(q).unwrap_or(&0));
                 if tf == 0.0 {
                     continue;
                 }
-                let dl = self.doc_len[i] as f32;
+                let dl = f64::from(self.doc_len[i]);
                 let denom = tf + self.k1 * (1.0 - self.b + self.b * dl / self.avgdl);
                 scores[i] += idf * (tf * (self.k1 + 1.0)) / denom;
             }
         }
-        scores
+        scores.into_iter().map(|x| x as f32).collect()
     }
 }
 
-fn compute_idf(nd: &HashMap<String, u32>, n: usize, epsilon: f32) -> HashMap<String, f32> {
-    let n_f = n as f32;
-    let mut idf: HashMap<String, f32> = HashMap::with_capacity(nd.len());
-    let mut idf_sum = 0.0_f32;
+fn compute_idf(nd: &HashMap<String, u32>, n: usize, epsilon: f64) -> HashMap<String, f64> {
+    let n_f = n as f64;
+    let mut idf: HashMap<String, f64> = HashMap::with_capacity(nd.len());
+    let mut idf_sum = 0.0_f64;
     let mut negatives: Vec<String> = Vec::new();
     for (word, freq) in nd {
-        let df = *freq as f32;
+        let df = f64::from(*freq);
         let v = (n_f - df + 0.5).ln() - (df + 0.5).ln();
         idf.insert(word.clone(), v);
         idf_sum += v;
@@ -141,7 +153,7 @@ fn compute_idf(nd: &HashMap<String, u32>, n: usize, epsilon: f32) -> HashMap<Str
         }
     }
     if !idf.is_empty() {
-        let average_idf = idf_sum / idf.len() as f32;
+        let average_idf = idf_sum / idf.len() as f64;
         let eps = epsilon * average_idf;
         for word in negatives {
             idf.insert(word, eps);

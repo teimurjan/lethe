@@ -74,9 +74,11 @@ fn build_session(onnx_path: &std::path::Path) -> Result<Session, Error> {
     builder = builder
         .with_optimization_level(GraphOptimizationLevel::Level3)
         .map_err(|e| Error::Encoder(format!("optimization level: {e}")))?;
-    builder = builder
-        .with_intra_threads(1)
-        .map_err(|e| Error::Encoder(format!("intra threads: {e}")))?;
+    // ONNX Runtime defaults to using all available cores for matmul; we
+    // let it. Capping `intra_threads = 1` (the previous setting) made
+    // the cross-encoder rerank ~5× slower than Python on the
+    // LongMemEval bench because Python's fastembed does not cap
+    // intra-op parallelism.
     builder
         .commit_from_file(onnx_path)
         .map_err(|e| Error::Encoder(format!("commit ONNX: {e}")))
