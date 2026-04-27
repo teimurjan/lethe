@@ -156,11 +156,13 @@ impl MemoryStore {
             defer_rebuild: false,
         };
 
-        // Hydrate from disk.
-        let (rows, emb_rows, suppression_state, centroids) = {
+        // Hydrate from disk. Embeddings live in `embeddings.npz` —
+        // shared byte-for-byte with Python's `np.savez(...)` output —
+        // so a Python-written index opens cleanly under Rust and vice
+        // versa. The DB only stores entry metadata (content, tier, …).
+        let (rows, suppression_state, centroids) = {
             let g = db.lock().unwrap();
             let rows = g.load_all_entries()?;
-            let emb_rows = g.load_all_embeddings()?;
             let mut state_in: Option<crate::rif::ClusteredSnapshot> = None;
             if config.rif.n_clusters > 0 {
                 let (scores, last) = g.load_cluster_suppression()?;
@@ -176,15 +178,18 @@ impl MemoryStore {
             } else {
                 None
             };
-            (rows, emb_rows, state_in, centroids)
+            (rows, state_in, centroids)
         };
-        let emb_map: HashMap<String, Array1<f32>> = emb_rows.into_iter().collect();
+        let emb_map = crate::npz::load_embeddings(&path.join("embeddings.npz"))?;
+        // Skip rows without embeddings (matches the Python `_load`
+        // semantics). With shared storage this only fires when the
+        // store has metadata for an entry whose embedding was never
+        // persisted — typically after an interrupted index.
         for r in rows {
             let Some(emb) = emb_map.get(&r.id) else {
-                // Row without embedding: skip, matching the Python
-                // `if emb is None: continue` behavior in `_load`.
                 continue;
             };
+            let emb = emb.clone();
             let entry = MemoryEntry {
                 id: r.id.clone(),
                 content: r.content,
@@ -198,7 +203,7 @@ impl MemoryStore {
                 tier: r.tier,
                 suppression: r.suppression,
             };
-            inner.embeddings.insert(r.id.clone(), emb.clone());
+            inner.embeddings.insert(r.id.clone(), emb);
             inner.ids.push(r.id.clone());
             inner.entries.insert(r.id, entry);
         }
@@ -289,7 +294,6 @@ impl MemoryStore {
                 {
                     let g = self.db.lock().unwrap();
                     g.delete_entry(&existing_id)?;
-                    g.delete_embedding(&existing_id)?;
                 }
                 inner.entries.remove(&existing_id);
                 inner.embeddings.remove(&existing_id);
@@ -303,7 +307,6 @@ impl MemoryStore {
         {
             let g = self.db.lock().unwrap();
             g.insert_entry(&entry)?;
-            g.save_embedding(&id, entry.embedding.view())?;
         }
         inner.entries.insert(id.clone(), entry.clone());
         inner.embeddings.insert(id.clone(), entry.embedding.clone());
@@ -324,7 +327,6 @@ impl MemoryStore {
         {
             let g = self.db.lock().unwrap();
             g.delete_entry(id)?;
-            g.delete_embedding(id)?;
         }
         inner.entries.remove(id);
         inner.embeddings.remove(id);
@@ -525,17 +527,16 @@ impl MemoryStore {
         Ok(hits)
     }
 
-    /// Persist mutable state. Skips embedding rewrites when no
+    /// Persist mutable state. Rewrites `embeddings.npz` only when an
     /// `add`/`delete` happened since the last save (PR #15 contract).
     pub fn save(&self) -> Result<(), crate::Error> {
         let mut inner = self.inner.lock().unwrap();
         if inner.structure_dirty {
-            // entry_embeddings table is already written incrementally
-            // by add()/delete(); nothing to do here other than mark
-            // clean. (We keep the structure_dirty flag because the
-            // FAISS-flat in-memory rebuild cost is the visible
-            // expense, and we still want to skip the rebuild when
-            // only retrieve happened.)
+            // Mirror Python's behavior: rewrite the npz from the live
+            // embeddings map. Atomic via tempfile+rename inside `npz`.
+            if !inner.embeddings.is_empty() {
+                crate::npz::save_embeddings(&self.path.join("embeddings.npz"), &inner.embeddings)?;
+            }
             inner.structure_dirty = false;
         }
         let entries: Vec<&MemoryEntry> = inner.entries.values().collect();
@@ -793,7 +794,6 @@ mod tests {
         {
             let dbg = store.db.lock().unwrap();
             dbg.insert_entry(&entry)?;
-            dbg.save_embedding(id, entry.embedding.view())?;
         }
         let mut g = store.inner.lock().unwrap();
         g.embeddings.insert(id.to_owned(), entry.embedding.clone());

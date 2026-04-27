@@ -18,6 +18,7 @@ pub mod kmeans;
 pub mod lock;
 pub mod markdown_store;
 pub mod memory_store;
+pub mod npz;
 pub mod registry;
 pub mod reranker;
 pub mod rif;
