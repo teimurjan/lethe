@@ -15,12 +15,10 @@ pub const RRF_K: usize = 60;
 /// appearing in multiple lists have their per-list contributions summed.
 ///
 /// Output is sorted descending by RRF score; duplicate ids do not
-/// appear. The relative ordering of equal-score items is the order of
-/// first appearance across the lists (HashMap insertion preserves
-/// insertion through `IndexMap` would be needed for guaranteed
-/// determinism; for now we rely on the natural "best score first"
-/// breaking the tie when scores differ, which they nearly always do
-/// thanks to the harmonic series).
+/// appear. Equal-score ties (rare in practice — RRF scores are sums
+/// of distinct harmonic terms) are broken by ascending id, which
+/// makes the order fully deterministic without depending on the
+/// non-deterministic iteration order of `HashMap`.
 pub fn rrf_merge<'a, I, J>(lists: &[I]) -> Vec<(String, f32)>
 where
     I: AsRef<[J]>,

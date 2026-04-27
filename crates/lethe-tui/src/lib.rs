@@ -127,8 +127,14 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         (KeyCode::Backspace, _) if matches!(app.focus, Focus::Search) => {
             app.search_input.pop();
         }
-        (KeyCode::Char(c), _) => {
-            // Type-anywhere refocus.
+        (KeyCode::Char(c), m)
+            if (m - KeyModifiers::SHIFT).is_empty() =>
+        {
+            // Type-anywhere refocus. Skip when CONTROL/ALT/SUPER are
+            // held — those are terminal shortcuts (Ctrl+D, Alt+W, …)
+            // that the user did not mean to type into the search box.
+            // Specific Ctrl/Alt combos we care about (Ctrl+Q, Ctrl+L,
+            // …) match earlier arms.
             if !matches!(app.focus, Focus::Search) {
                 app.focus = Focus::Search;
             }

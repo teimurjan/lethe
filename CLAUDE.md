@@ -29,7 +29,7 @@ crates/               # Rust workspace (production); shared workspace version
 │                     #   → PyPI: lethe-memory
 ├── lethe-node/       # napi-rs bindings
 │                     #   → npm: lethe
-├── lethe-bench/      # internal parity bench helper binary (publish = false)
+├── lethe-benchmark/  # internal parity bench helper binary (publish = false)
 └── lethe-claude-code/ # Claude Code adapter binary (transcript parsing).
                       #   Lives separately so `lethe-core` stays
                       #   framework-agnostic. Used only by

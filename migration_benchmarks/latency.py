@@ -212,8 +212,8 @@ def main(argv: list[str]) -> int:
         p.print_help()
         return 2
 
-    # Build release lethe / lethe-bench up front so timing isn't polluted.
-    find_rust_bin()  # ensures `lethe-bench` exists; the CLI uses target/release/lethe
+    # Build release lethe / lethe-benchmark up front so timing isn't polluted.
+    find_rust_bin()  # ensures `lethe-benchmark` exists; the CLI uses target/release/lethe
     rs_cli = shutil.which("lethe") or str(REPO / "target" / "release" / "lethe")
     if not Path(rs_cli).exists():
         sys.stderr.write("[latency] building release lethe…\n")

@@ -38,8 +38,9 @@ impl Reranker {
 
     /// Score `(query, content)` pairs. Returns `(eid, score)` sorted
     /// descending by score. When no cross-encoder is configured, the
-    /// candidates are returned in input order with their original
-    /// scores untouched (this is the test-only path).
+    /// candidates are returned in input order with score `0.0` for
+    /// every entry (this is the test-only path; callers must not
+    /// treat the score as meaningful in that case).
     pub fn rerank(
         &self,
         query: &str,

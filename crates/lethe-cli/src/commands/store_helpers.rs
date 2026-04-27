@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use lethe_core::encoders::{BiEncoder, CrossEncoder};
 use lethe_core::memory_store::{MemoryStore, StoreConfig};
 use lethe_core::rif::RifConfig;
@@ -44,7 +44,11 @@ pub fn load_config(config_path: &Path) -> Result<CliConfig> {
         return Ok(CliConfig::default());
     }
     let txt = std::fs::read_to_string(config_path)?;
-    Ok(toml::from_str(&txt).unwrap_or_default())
+    // Surface parse errors instead of silently falling back to defaults
+    // — `config.toml` is user-controlled and a typo there should fail
+    // loudly with a line/column from the toml crate.
+    toml::from_str::<CliConfig>(&txt)
+        .with_context(|| format!("parse {}", config_path.display()))
 }
 
 pub fn save_config(config_path: &Path, cfg: &CliConfig) -> Result<()> {

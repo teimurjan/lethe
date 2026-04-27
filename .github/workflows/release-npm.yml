@@ -1,8 +1,8 @@
 name: release-npm
 
 # Triggered when release-please publishes a GitHub Release.
-# Builds napi-rs platform binaries for `@lethe/memory` and publishes
-# both the per-platform packages and the meta package to npm.
+# Builds napi-rs platform binaries for `lethe` and publishes both the
+# per-platform packages and the meta package to npm.
 
 on:
   release:

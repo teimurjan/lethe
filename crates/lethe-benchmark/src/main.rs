@@ -1,10 +1,10 @@
-//! `lethe-bench` — Rust counterpart to `benchmarks/run_benchmark.py`.
+//! `lethe-benchmark` — Rust counterpart to `legacy/benchmarks/run_benchmark.py`.
 //!
 //! Runs the same five retrieval configurations on LongMemEval data,
 //! reusing the precomputed embeddings exported by
-//! `bench/prepare_lme_data.py`. Outputs JSON to stdout in the same
-//! shape as `bench/run_lme_python.py` so the two are directly
-//! diffable.
+//! `migration_benchmarks/prepare.py`. Outputs JSON to stdout in the
+//! same shape as `migration_benchmarks/longmemeval.py --impl python`
+//! so the two are directly diffable.
 //!
 //! The cross-encoder rerank step uses the production Rust path
 //! (`lethe_core::encoders::CrossEncoder` over ONNX Runtime via `ort`),
@@ -29,13 +29,13 @@ use ndarray::{Array2, ArrayView1};
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "lethe-bench",
+    name = "lethe-benchmark",
     version,
     about = "Rust parity bench. Each subcommand emits JSON to stdout in a shape the matching Python harness can diff."
 )]
 struct Cli {
-    /// Path to `data/` containing longmemeval_*.json + lme_rust/.
-    #[arg(long, global = true, default_value = "data")]
+    /// Path to `tmp_data/` containing longmemeval_*.json + lme_rust/.
+    #[arg(long, global = true, default_value = "tmp_data")]
     data: PathBuf,
 
     #[command(subcommand)]

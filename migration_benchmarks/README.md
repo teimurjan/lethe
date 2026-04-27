@@ -18,7 +18,7 @@ migration_benchmarks/
 └── results/           # only persistent output: COMPARE_*.md reports
 ```
 
-The Rust side is a single binary, `target/release/lethe-bench`, with
+The Rust side is a single binary, `target/release/lethe-benchmark`, with
 matching subcommands (`longmemeval`, `bm25`, `flat-ip`, `xenc`). Each
 Python suite shells out to the corresponding subcommand and parses
 JSON.

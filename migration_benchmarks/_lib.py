@@ -25,7 +25,7 @@ REPO = Path(__file__).resolve().parent.parent
 RESULTS = REPO / "migration_benchmarks" / "results"
 DATA = REPO / "tmp_data"
 LME_RUST = DATA / "lme_rust"
-RUST_BIN = REPO / "target" / "release" / "lethe-bench"
+RUST_BIN = REPO / "target" / "release" / "lethe-benchmark"
 
 
 def ensure_results_dir() -> Path:
@@ -34,19 +34,19 @@ def ensure_results_dir() -> Path:
 
 
 def find_rust_bin() -> Path:
-    """Locate the release `lethe-bench` binary; build it if missing."""
+    """Locate the release `lethe-benchmark` binary; build it if missing."""
     if RUST_BIN.exists():
         return RUST_BIN
-    p = shutil.which("lethe-bench")
+    p = shutil.which("lethe-benchmark")
     if p:
         return Path(p)
-    print("[bench] building release lethe-bench…")
+    print("[bench] building release lethe-benchmark…")
     subprocess.check_call(
-        ["cargo", "build", "--release", "-p", "lethe-bench"],
+        ["cargo", "build", "--release", "-p", "lethe-benchmark"],
         cwd=REPO,
     )
     if not RUST_BIN.exists():
-        raise RuntimeError("lethe-bench build did not produce target/release/lethe-bench")
+        raise RuntimeError("lethe-benchmark build did not produce target/release/lethe-benchmark")
     return RUST_BIN
 
 
