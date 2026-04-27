@@ -1,0 +1,44 @@
+# Pre-commit checks. Designed to run via `prek` (https://github.com/j178/prek)
+# — a fast Rust-native drop-in for `pre-commit`. Same `.pre-commit-config.yaml`
+# format, no Python venv to bootstrap.
+#
+# Setup:
+#   cargo install --git https://github.com/j178/prek
+#   prek install
+#
+# `prek install` writes `.git/hooks/pre-commit` and `pre-push` so these
+# checks run automatically. Equivalent to the deleted ci.yml — checks
+# happen before commit instead of after push.
+
+default_install_hook_types: [pre-commit, pre-push]
+
+repos:
+  # Rust formatting + lint — fast, run on every commit.
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt --check
+        entry: cargo fmt --all -- --check
+        language: system
+        types_or: [rust, toml]
+        pass_filenames: false
+        stages: [pre-commit]
+
+      - id: cargo-clippy
+        name: cargo clippy --workspace --all-targets -- -D warnings
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        types_or: [rust, toml]
+        pass_filenames: false
+        stages: [pre-commit]
+
+  # Slow Rust tests — run on push only, not every commit.
+  - repo: local
+    hooks:
+      - id: cargo-test
+        name: cargo test --workspace
+        entry: cargo test --workspace
+        language: system
+        types_or: [rust, toml]
+        pass_filenames: false
+        stages: [pre-push]

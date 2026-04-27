@@ -47,9 +47,11 @@ lethe enrich [DIR]              # optional: Haiku enrichment (needs ANTHROPIC_AP
 
 ## Requirements
 
-- `uv` (the hooks auto-resolve the CLI via `uvx --from git+https://github.com/teimurjan/lethe lethe` if it isn't on PATH)
+- `lethe` and `lethe-claude-code` binaries on PATH. Install with
+  `brew install teimurjan/lethe/lethe` (macOS / Linuxbrew) or
+  `cargo install lethe-cli lethe-claude-code`, or download a release
+  tarball from https://github.com/teimurjan/lethe/releases.
 - `claude` CLI for the Stop hook summarizer (uses your existing auth — no extra API key)
-- Python 3.11+
 
 ## Debugging
 

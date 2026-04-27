@@ -18,8 +18,8 @@ Find memories relevant to: $ARGUMENTS
 ## Steps
 
 1. **Search.** Run the CLI with `--all`:
-   - Primary: `lethe search "<query>" --all --top-k 5 --json-output`
-   - Fallback (CLI not on PATH): `uvx --from git+https://github.com/teimurjan/lethe lethe search "<query>" --all --top-k 5 --json-output`
+   - `lethe search "<query>" --all --top-k 5 --json-output`
+   - If `lethe` is not on PATH, ask the user to install it: `brew install teimurjan/lethe/lethe` (macOS / Linuxbrew) or `cargo install lethe-cli`.
 
    Output is JSON with per-project attribution: `[{"id": "...", "content": "...", "score": 4.2, "project_slug": "...", "project_root": "..."}, ...]`.
 

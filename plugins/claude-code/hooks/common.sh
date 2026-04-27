@@ -7,8 +7,11 @@
 #   LETHE_MEMORY_DIR  — $LETHE_DIR/memory
 #   LETHE_INDEX_DIR   — $LETHE_DIR/index
 #   LETHE_STDIN_JSON  — raw JSON payload read from stdin (may be empty)
-#   LETHE_CLI         — full command for invoking the lethe CLI (either `lethe`
-#                       on PATH or `uvx --from git+... lethe`)
+#   LETHE_CLI         — `lethe` if the binary is on PATH, else empty (the
+#                       hooks no-op when empty so a missing binary is not
+#                       fatal). Install via `brew install teimurjan/lethe/lethe`,
+#                       `cargo install lethe-cli`, or a release tarball from
+#                       https://github.com/teimurjan/lethe/releases.
 #
 # Helpers:
 #   _json_val <key>           — extract a string/scalar from LETHE_STDIN_JSON
@@ -17,8 +20,6 @@
 #   _read_stdin_with_timeout  — populate LETHE_STDIN_JSON with a 2s budget
 
 set -o pipefail
-
-LETHE_INSTALL_SOURCE="${LETHE_INSTALL_SOURCE:-git+https://github.com/teimurjan/lethe}"
 
 # --- Paths -------------------------------------------------------------------
 
@@ -39,10 +40,6 @@ _log() {
 
 if command -v lethe >/dev/null 2>&1; then
   LETHE_CLI="lethe"
-elif command -v uvx >/dev/null 2>&1; then
-  LETHE_CLI="uvx --from ${LETHE_INSTALL_SOURCE} lethe"
-elif [ -x "$HOME/.local/bin/uvx" ]; then
-  LETHE_CLI="$HOME/.local/bin/uvx --from ${LETHE_INSTALL_SOURCE} lethe"
 else
   LETHE_CLI=""
 fi

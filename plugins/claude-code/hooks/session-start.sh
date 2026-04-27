@@ -34,8 +34,9 @@ if ls "${LETHE_MEMORY_DIR}"/*.md >/dev/null 2>&1; then
   done < <(ls -t "${LETHE_MEMORY_DIR}"/*.md 2>/dev/null | head -n 2)
 fi
 
-# Background-warm the uvx cache so the first `lethe search` in the session
-# doesn't pay the full install cost. Harmless if already cached or missing.
+# Background-warm the lethe binary so the first `lethe search` in the
+# session doesn't pay the full ONNX-runtime/DuckDB load cost. Harmless
+# if `lethe` isn't installed (LETHE_CLI is empty in that case).
 if [ -n "${LETHE_CLI}" ]; then
   ( ${LETHE_CLI} --version >/dev/null 2>&1 ) &
   disown 2>/dev/null || true

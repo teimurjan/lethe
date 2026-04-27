@@ -1,59 +1,28 @@
 name: release-npm
 
 # Triggered when release-please publishes a GitHub Release.
-# Builds napi-rs platform binaries for `lethe` and publishes both the
-# per-platform packages and the meta package to npm.
+# Picks up napi-rs `.node` files uploaded to the release as assets and
+# publishes the `lethe` npm package (per-platform sub-packages plus
+# the meta package).
+#
+# `.node` files are built locally via `scripts/release/build.sh --napi`
+# and uploaded to the GitHub Release before this runs.
 
 on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (defaults to current ref)."
+        required: false
 
 permissions:
   contents: read
 
 jobs:
-  build:
-    name: build napi ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: crates/lethe-node
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            os: macos-14
-          - target: x86_64-apple-darwin
-            os: macos-13
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          registry-url: "https://registry.npmjs.org"
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - run: npm install
-      - run: npx napi build --platform --release --target ${{ matrix.target }}
-      - uses: actions/upload-artifact@v4
-        with:
-          name: napi-${{ matrix.target }}
-          path: |
-            crates/lethe-node/*.node
-            crates/lethe-node/npm/
-
   publish:
     name: publish to npm
-    needs: build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -64,10 +33,15 @@ jobs:
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
-      - uses: actions/download-artifact@v4
-        with:
-          path: crates/lethe-node
-          merge-multiple: true
+      - name: download .node assets from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "lethe-*.node" --dir . || true
+          ls -la *.node || echo "no .node files attached to the release; skipping npm publish"
       - run: npm install
       - run: npx napi prepublish -t npm --skip-gh-release
         env:

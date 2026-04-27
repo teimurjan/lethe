@@ -1,67 +1,45 @@
 name: release-pypi
 
 # Triggered when release-please publishes a GitHub Release.
-# Builds platform wheels for `lethe-memory` (the PyO3 binding) via maturin
-# and publishes them to PyPI under the `lethe-memory` distribution name.
+# Picks up maturin wheels uploaded to the release as assets and
+# publishes them to PyPI under `lethe-memory`.
+#
+# Wheels are built locally via `scripts/release/build.sh --pypi` and
+# uploaded to the GitHub Release before this runs.
 
 on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (defaults to current ref)."
+        required: false
 
 permissions:
   contents: read
-  id-token: write  # PyPI trusted publishing
+  id-token: write  # PyPI Trusted Publishing
 
 jobs:
-  build:
-    name: build wheel ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: aarch64-apple-darwin
-            os: macos-14
-          - target: x86_64-apple-darwin
-            os: macos-13
-          - target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-          - target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-          - target: x86_64-pc-windows-msvc
-            os: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.target }}
-      - uses: PyO3/maturin-action@v1
-        with:
-          working-directory: crates/lethe-py
-          target: ${{ matrix.target }}
-          args: --release --out dist --strip
-          manylinux: auto
-      - uses: actions/upload-artifact@v4
-        with:
-          name: wheels-${{ matrix.target }}
-          path: crates/lethe-py/dist/*.whl
-
   publish:
     name: publish to PyPI
-    needs: build
     runs-on: ubuntu-latest
     environment:
       name: pypi
       url: https://pypi.org/p/lethe-memory
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
+      - name: download wheels from release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern "*.whl" --pattern "*.tar.gz" --dir dist || true
+          # Drop non-wheel/sdist tarballs the rust workflow uploads.
+          find dist -type f ! -name "*.whl" ! -name "lethe_memory-*.tar.gz" -delete
+          ls -la dist
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: dist/
