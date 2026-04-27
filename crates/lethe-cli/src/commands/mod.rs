@@ -3,6 +3,7 @@
 pub mod config;
 pub mod expand;
 pub mod index;
+pub mod migrate;
 pub mod projects;
 pub mod reset;
 pub mod search;

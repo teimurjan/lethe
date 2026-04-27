@@ -122,6 +122,7 @@ impl MemoryStore {
     /// at `<path>/lethe.duckdb`). The encoder fields are optional so
     /// tests can mock them; `add` and `retrieve` will return errors
     /// when called without the corresponding encoder configured.
+    #[allow(clippy::too_many_lines)] // hydration is one straight-line operation
     pub fn open(
         path: impl AsRef<Path>,
         bi_encoder: Option<Arc<BiEncoder>>,
@@ -156,13 +157,15 @@ impl MemoryStore {
             defer_rebuild: false,
         };
 
-        // Hydrate from disk. Embeddings live in `embeddings.npz` —
-        // shared byte-for-byte with Python's `np.savez(...)` output —
-        // so a Python-written index opens cleanly under Rust and vice
-        // versa. The DB only stores entry metadata (content, tier, …).
-        let (rows, suppression_state, centroids) = {
+        // Hydrate from disk. Embeddings are stored as DuckDB BLOBs in
+        // the `entry_embeddings` table — Rust-native, no dependence on
+        // numpy semantics. Stores written by the legacy Python impl
+        // keep their embeddings in `embeddings.npz` and need a one-shot
+        // conversion via `lethe migrate`.
+        let (rows, emb_rows, suppression_state, centroids) = {
             let g = db.lock().unwrap();
             let rows = g.load_all_entries()?;
+            let emb_rows = g.load_all_embeddings()?;
             let mut state_in: Option<crate::rif::ClusteredSnapshot> = None;
             if config.rif.n_clusters > 0 {
                 let (scores, last) = g.load_cluster_suppression()?;
@@ -178,13 +181,20 @@ impl MemoryStore {
             } else {
                 None
             };
-            (rows, state_in, centroids)
+            (rows, emb_rows, state_in, centroids)
         };
-        let emb_map = crate::npz::load_embeddings(&path.join("embeddings.npz"))?;
-        // Skip rows without embeddings (matches the Python `_load`
-        // semantics). With shared storage this only fires when the
-        // store has metadata for an entry whose embedding was never
-        // persisted — typically after an interrupted index.
+        let emb_map: HashMap<String, Array1<f32>> = emb_rows.into_iter().collect();
+        // Detect an unmigrated Python store: rows present, embeddings
+        // table empty, but `embeddings.npz` exists. Don't read the npz;
+        // tell the user how to convert it.
+        if !rows.is_empty() && emb_map.is_empty() && path.join("embeddings.npz").exists() {
+            eprintln!(
+                "[lethe] {} entries but no Rust-side embeddings; this index was \
+                 written by the legacy Python implementation. Run `lethe migrate` \
+                 to convert `embeddings.npz` into the DuckDB store.",
+                rows.len()
+            );
+        }
         for r in rows {
             let Some(emb) = emb_map.get(&r.id) else {
                 continue;
@@ -294,6 +304,7 @@ impl MemoryStore {
                 {
                     let g = self.db.lock().unwrap();
                     g.delete_entry(&existing_id)?;
+                    g.delete_embedding(&existing_id)?;
                 }
                 inner.entries.remove(&existing_id);
                 inner.embeddings.remove(&existing_id);
@@ -307,6 +318,7 @@ impl MemoryStore {
         {
             let g = self.db.lock().unwrap();
             g.insert_entry(&entry)?;
+            g.save_embedding(&id, entry.embedding.view())?;
         }
         inner.entries.insert(id.clone(), entry.clone());
         inner.embeddings.insert(id.clone(), entry.embedding.clone());
@@ -327,6 +339,7 @@ impl MemoryStore {
         {
             let g = self.db.lock().unwrap();
             g.delete_entry(id)?;
+            g.delete_embedding(id)?;
         }
         inner.entries.remove(id);
         inner.embeddings.remove(id);
@@ -527,18 +540,12 @@ impl MemoryStore {
         Ok(hits)
     }
 
-    /// Persist mutable state. Rewrites `embeddings.npz` only when an
-    /// `add`/`delete` happened since the last save (PR #15 contract).
+    /// Persist mutable state. Embeddings are written incrementally
+    /// during `add`/`delete` (DuckDB BLOB), so save() only flushes
+    /// per-retrieve metadata and resets the structure-dirty flag.
     pub fn save(&self) -> Result<(), crate::Error> {
         let mut inner = self.inner.lock().unwrap();
-        if inner.structure_dirty {
-            // Mirror Python's behavior: rewrite the npz from the live
-            // embeddings map. Atomic via tempfile+rename inside `npz`.
-            if !inner.embeddings.is_empty() {
-                crate::npz::save_embeddings(&self.path.join("embeddings.npz"), &inner.embeddings)?;
-            }
-            inner.structure_dirty = false;
-        }
+        inner.structure_dirty = false;
         let entries: Vec<&MemoryEntry> = inner.entries.values().collect();
         let g = self.db.lock().unwrap();
         g.batch_update_entries(&entries)?;
@@ -794,6 +801,7 @@ mod tests {
         {
             let dbg = store.db.lock().unwrap();
             dbg.insert_entry(&entry)?;
+            dbg.save_embedding(id, entry.embedding.view())?;
         }
         let mut g = store.inner.lock().unwrap();
         g.embeddings.insert(id.to_owned(), entry.embedding.clone());

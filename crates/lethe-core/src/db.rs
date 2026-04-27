@@ -1,6 +1,7 @@
-//! DuckDB persistence — port of `legacy/lethe/db.py`. Schema is held
-//! bit-identical so a Python-written index opens cleanly under Rust
-//! and vice versa.
+//! DuckDB persistence — port of `legacy/lethe/db.py`. Schema covers
+//! the entry rows + clustered RIF state + canonical embedding storage
+//! (the `entry_embeddings` table). Python-written stores keep their
+//! embeddings in `embeddings.npz` and need a one-shot `lethe migrate`.
 //!
 //! Tables:
 //! * `entries(id, content, session_id, turn_idx, tier, affinity,
@@ -67,6 +68,16 @@ CREATE TABLE IF NOT EXISTS cluster_centroids (
     dim INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS entry_embeddings (
+    -- Canonical Rust-native embedding storage. Vectors are stored as
+    -- little-endian f32 BLOBs. The `lethe migrate` subcommand
+    -- backfills this table from a Python-written `embeddings.npz`
+    -- one time, then the npz is no longer consulted.
+    entry_id TEXT PRIMARY KEY,
+    dim INTEGER NOT NULL,
+    vector BLOB NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_entries_tier ON entries(tier);
 CREATE INDEX IF NOT EXISTS idx_entries_hash ON entries(content_hash);
 CREATE INDEX IF NOT EXISTS idx_rescue_entry ON rescue_cache(entry_id);
@@ -74,9 +85,9 @@ CREATE INDEX IF NOT EXISTS idx_cluster_suppression_entry
     ON cluster_suppression(entry_id);
 ";
 
-/// One row from `entries` minus the embedding (which lives in
-/// `embeddings.npz`). Mirrors what Python's `load_all_entries` returns
-/// without the dict overhead.
+/// One row from `entries` minus the embedding (which lives in the
+/// `entry_embeddings` table). Mirrors what Python's `load_all_entries`
+/// returns without the dict overhead.
 #[derive(Debug, Clone)]
 pub struct EntryRow {
     pub id: String,
@@ -322,8 +333,86 @@ impl MemoryDb {
         Ok(())
     }
 
-    // Embedding storage moved to `embeddings.npz` (see `crate::npz`)
-    // so Python and Rust share storage byte-for-byte.
+    // -------- per-entry embeddings (canonical: DuckDB BLOB) --------
+
+    /// Insert or replace one entry's embedding.
+    pub fn save_embedding(
+        &self,
+        entry_id: &str,
+        vector: ArrayView1<'_, f32>,
+    ) -> Result<(), crate::Error> {
+        let bytes: Vec<u8> = vector.iter().flat_map(|v| v.to_le_bytes()).collect();
+        self.conn.execute(
+            "INSERT OR REPLACE INTO entry_embeddings (entry_id, dim, vector) VALUES (?, ?, ?)",
+            params![entry_id, vector.len() as i64, bytes],
+        )?;
+        Ok(())
+    }
+
+    /// Bulk write embeddings as one transactional batch.
+    pub fn save_embeddings_bulk(
+        &self,
+        items: &[(String, Array1<f32>)],
+    ) -> Result<(), crate::Error> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        let mut stmt = self.conn.prepare(
+            "INSERT OR REPLACE INTO entry_embeddings (entry_id, dim, vector) VALUES (?, ?, ?)",
+        )?;
+        for (eid, vec) in items {
+            let bytes: Vec<u8> = vec.iter().flat_map(|v| v.to_le_bytes()).collect();
+            stmt.execute(params![eid, vec.len() as i64, bytes])?;
+        }
+        Ok(())
+    }
+
+    /// Drop one entry's embedding row.
+    pub fn delete_embedding(&self, entry_id: &str) -> Result<(), crate::Error> {
+        self.conn.execute(
+            "DELETE FROM entry_embeddings WHERE entry_id = ?",
+            params![entry_id],
+        )?;
+        Ok(())
+    }
+
+    /// Load every embedding stored in this database.
+    pub fn load_all_embeddings(&self) -> Result<Vec<(String, Array1<f32>)>, crate::Error> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT entry_id, dim, vector FROM entry_embeddings")?;
+        let rows: Vec<(String, i64, Vec<u8>)> = stmt
+            .query_map([], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, i64>(1)?,
+                    row.get::<_, Vec<u8>>(2)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        let mut out = Vec::with_capacity(rows.len());
+        for (eid, dim, blob) in rows {
+            let dim = dim as usize;
+            debug_assert_eq!(blob.len(), dim * 4);
+            let mut arr = Array1::<f32>::zeros(dim);
+            for (j, chunk) in blob.chunks_exact(4).enumerate().take(dim) {
+                arr[j] = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            }
+            out.push((eid, arr));
+        }
+        Ok(out)
+    }
+
+    /// True when the canonical Rust-side embedding table is empty —
+    /// used by `lethe migrate` and `MemoryStore::open` to decide
+    /// whether the user still needs to convert from `embeddings.npz`.
+    pub fn embeddings_empty(&self) -> Result<bool, crate::Error> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT 1 FROM entry_embeddings LIMIT 1")?;
+        let mut rows = stmt.query([])?;
+        Ok(rows.next()?.is_none())
+    }
 
     pub fn load_cluster_centroids(&self) -> Result<Option<Array2<f32>>, crate::Error> {
         let mut stmt = self.conn.prepare(

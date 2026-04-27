@@ -91,6 +91,14 @@ enum Cmd {
         #[command(subcommand)]
         action: ProjectsCmd,
     },
+    /// Convert a legacy Python `embeddings.npz` into the Rust DuckDB store.
+    Migrate {
+        /// Migrate every registered project (~/.lethe/projects.json).
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        json_output: bool,
+    },
     /// Interactive TUI. Implicit when `lethe` is run with no args in a terminal.
     Tui,
 }
@@ -181,6 +189,7 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             Ok(2)
         }
         Cmd::Projects { action } => commands::projects::run(action),
+        Cmd::Migrate { all, json_output } => commands::migrate::run(root, all, json_output),
         Cmd::Tui => commands::tui::run(),
     }
 }
