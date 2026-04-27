@@ -19,6 +19,8 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use rayon::prelude::*;
+
 use crate::encoders::{BiEncoder, CrossEncoder};
 use crate::memory_store::{Hit, MemoryStore, StoreConfig};
 use crate::registry::ProjectEntry;
@@ -86,23 +88,36 @@ impl UnionStore {
     /// Cross-project retrieve. Per-project top-`k` results are
     /// concatenated then re-sorted by their rerank scores; the
     /// `k` highest overall are returned.
+    ///
+    /// Per-project pipelines run in parallel via rayon — the heavy
+    /// cost (BM25 + dense + cross-encoder rerank) is independent
+    /// across projects. The bi-encoder query embedding is computed
+    /// once per project but the duplicated work (~5 ms each) is
+    /// dwarfed by the parallel speedup on multi-core hosts.
     pub fn retrieve(&self, query: &str, k: usize) -> Result<Vec<UnionHit>, crate::Error> {
         if self.projects.is_empty() {
             return Ok(Vec::new());
         }
-        let mut all: Vec<UnionHit> = Vec::with_capacity(self.projects.len() * k);
-        for proj in &self.projects {
-            let per_project: Vec<Hit> = proj.store.retrieve(query, k)?;
-            for h in per_project {
-                all.push(UnionHit {
-                    project_slug: proj.entry.slug.clone(),
-                    project_root: proj.entry.root.clone(),
-                    id: h.id,
-                    content: h.content,
-                    score: h.score,
-                });
-            }
-        }
+        let mut all: Vec<UnionHit> = self
+            .projects
+            .par_iter()
+            .map(|proj| -> Result<Vec<UnionHit>, crate::Error> {
+                let per_project: Vec<Hit> = proj.store.retrieve(query, k)?;
+                Ok(per_project
+                    .into_iter()
+                    .map(|h| UnionHit {
+                        project_slug: proj.entry.slug.clone(),
+                        project_root: proj.entry.root.clone(),
+                        id: h.id,
+                        content: h.content,
+                        score: h.score,
+                    })
+                    .collect())
+            })
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect();
         all.sort_by(|a, b| {
             b.score
                 .partial_cmp(&a.score)
