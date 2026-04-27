@@ -1,10 +1,14 @@
 # Latest-release artifacts go through Git LFS so the main-branch
 # history stays small. The `release.yml` workflow commits the
-# tarballs / wheels / .node files into `release_artifacts/`, which
-# would otherwise bloat git's pack files by hundreds of MB per
-# release. Old versions remain accessible via the GitHub Releases
-# page; the repo only carries the latest set.
-release_artifacts/*.tar.gz filter=lfs diff=lfs merge=lfs -text
-release_artifacts/*.zip    filter=lfs diff=lfs merge=lfs -text
-release_artifacts/*.whl    filter=lfs diff=lfs merge=lfs -text
-release_artifacts/*.node   filter=lfs diff=lfs merge=lfs -text
+# tarballs / wheels / .node files / loose binaries into
+# `release_artifacts/`, which would otherwise bloat git's pack
+# files by hundreds of MB per release. Old versions remain
+# accessible via the GitHub Releases page; the repo only carries
+# the latest set.
+#
+# Broad glob: anything starting with `lethe` in `release_artifacts/`
+# is a release artifact — the loose `lethe-*-arm64` and
+# `lethe-claude-code-*-arm64` binaries (no extension), the
+# `.tar.gz` / `.zip` / `.node` archives, and the `lethe_memory-*.whl`
+# Python wheels. Single rule covers everything.
+release_artifacts/lethe* filter=lfs diff=lfs merge=lfs -text
