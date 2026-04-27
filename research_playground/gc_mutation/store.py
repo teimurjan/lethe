@@ -8,10 +8,10 @@ import numpy as np
 import numpy.typing as npt
 from rank_bm25 import BM25Okapi  # type: ignore[import-untyped]
 
-from research.gc_mutation.config import Config
+from research_playground.gc_mutation.config import Config
 from lethe.entry import MemoryEntry, Tier, effective_embedding
-from research.gc_mutation.graph import RelevanceGraph
-from research.gc_mutation.rescue_index import RescueIndex
+from research_playground.gc_mutation.graph import RelevanceGraph
+from research_playground.gc_mutation.rescue_index import RescueIndex
 
 
 class GCMemoryStore:

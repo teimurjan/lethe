@@ -10,7 +10,7 @@ Usage:
   uv run python scripts/enrich_longmemeval.py [--model MODEL] [--max N]
 
 Output:
-  data/longmemeval_enriched.jsonl — one Enrichment per line.
+  tmp_data/longmemeval_enriched.jsonl — one Enrichment per line.
 """
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ import os
 import sys
 from pathlib import Path
 
-DATA = Path("data")
+DATA = Path("tmp_data")
 
 # Inside legacy/ the package is at `legacy/lethe/`; parent.parent is
 # `legacy/` itself, which is on sys.path after `pip install -e legacy/`.
@@ -63,7 +63,7 @@ def main() -> None:
                     help="Limit number of entries to enrich (for smoke tests)")
     ap.add_argument("--concurrency", type=int, default=5,
                     help="Max concurrent API calls (default: 5 — Haiku has 50 RPM limit)")
-    ap.add_argument("--output", default="data/longmemeval_enriched.jsonl",
+    ap.add_argument("--output", default="tmp_data/longmemeval_enriched.jsonl",
                     help="Output JSONL path")
     args = ap.parse_args()
 

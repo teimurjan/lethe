@@ -25,7 +25,7 @@ JSON.
 
 ## Run
 
-One-time setup (writes `data/lme_rust/` — flat-binary mirror of the
+One-time setup (writes `tmp_data/lme_rust/` — flat-binary mirror of the
 prepared LongMemEval data, gitignored):
 
 ```bash

@@ -3,6 +3,9 @@ results/
 !legacy/benchmarks/results/
 legacy/benchmarks/results/int8_embeds/
 data/
+tmp_data/
+tmp_writeup/
+tmp_results/
 __pycache__/
 *.egg-info/
 .venv/
@@ -12,15 +15,15 @@ dist/
 .DS_Store
 .coverage
 .pytest_cache/
-writeup/
-arxiv/*.pdf
-arxiv/*.aux
-arxiv/*.log
-arxiv/*.out
-arxiv/*.toc
-arxiv/*.bbl
-arxiv/*.blg
-arxiv/*.synctex.gz
+# LaTeX build artifacts for paper.tex (root)
+paper.pdf
+paper.aux
+paper.log
+paper.out
+paper.toc
+paper.bbl
+paper.blg
+paper.synctex.gz
 .memsearch/
 .claude/
 .env

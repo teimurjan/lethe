@@ -60,7 +60,7 @@ plugins/claude-code/  # Claude Code plugin
 
 .claude-plugin/       # Marketplace manifest (for `/plugin marketplace add`)
 
-research/             # Experimental / non-production code
+research_playground/  # Experimental / non-production code
 ├── gc_mutation/      # Germinal-center mutation thread (checkpoints 1-10)
 └── sdm/              # Sparse Distributed Memory prototype (checkpoint 15)
 ```
@@ -125,7 +125,7 @@ BM25 tokenizer was upgraded from `lower().split()` to a regex word-tokenizer on 
 
 18 checkpoints. Checkpoints 1-10 (GC mechanisms): all failed. Checkpoint 11 (global RIF): +1.1% (not significant: p=0.62 under checkpoint 18's bootstrap). Checkpoint 12 (clustered RIF): +5.8% (significant: p=0.002, CI excludes zero). Checkpoint 13 (clustered + rank-gap): +6.5% NDCG, +9.5% recall@30 — retrieval-only best. Checkpoint 14 (exploration + rescue list): negative at full scale. Checkpoint 15 (SDM research prototype in `sdm/`): negative. Checkpoint 16 (extended metrics for checkpoint 13): RIF's gain is primarily from reducing wrong_family (−1.6pp); sibling_confusion and stale_fact unchanged. Checkpoint 17 (LLM enrichment layer, Haiku write-time gist + anticipated queries + entities + temporal markers): **+8.3pp NDCG on covered queries (+21% rel over RIF), largest single-lever gain in the journey**. Overall diluted to +1.2pp by partial coverage (15% of queries). Full corpus enrichment expected ~$16. Checkpoint 18 (statistical rigor + NFCorpus replication): clustered-RIF main claim survives bootstrap CIs and paired permutation tests on LongMemEval; rank-gap refinement is not individually significant over the uniform rule at n=500 (p=0.55 NDCG); mechanism does not transfer to NFCorpus (3 of 4 variants significantly regress). **Mechanism is workload-specific to long-term conversational memory.**
 
-Full research journey: [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md). Statistical rigor and scope claim written up in the arXiv-formatted paper at [arxiv/paper.tex](arxiv/paper.tex).
+Full research journey: [RESEARCH_JOURNEY.md](RESEARCH_JOURNEY.md). Statistical rigor and scope claim written up in the arXiv-formatted paper at [paper.tex](paper.tex).
 
 ## git commits
 

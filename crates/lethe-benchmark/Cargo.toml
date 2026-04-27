@@ -1,15 +1,15 @@
 [package]
-name = "lethe-bench"
+name = "lethe-benchmark"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "LongMemEval bench harness for the Rust port. Outputs JSON for parity comparison."
+description = "LongMemEval benchmark harness for the Rust port. Outputs JSON for parity comparison."
 license.workspace = true
 repository.workspace = true
 publish = false
 
 [[bin]]
-name = "lethe-bench"
+name = "lethe-benchmark"
 path = "src/main.rs"
 
 [dependencies]

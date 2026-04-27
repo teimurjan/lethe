@@ -23,7 +23,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 RESULTS = REPO / "migration_benchmarks" / "results"
-DATA = REPO / "data"
+DATA = REPO / "tmp_data"
 LME_RUST = DATA / "lme_rust"
 RUST_BIN = REPO / "target" / "release" / "lethe-bench"
 

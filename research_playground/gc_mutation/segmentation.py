@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from research.gc_mutation.config import Config
+from research_playground.gc_mutation.config import Config
 from lethe.entry import MemoryEntry, Tier, create_entry
 
 

@@ -1,14 +1,14 @@
 """One-time data prep for the bench suites.
 
-Exports `data/longmemeval_prepared.npz` to flat files the Rust bench
+Exports `tmp_data/longmemeval_prepared.npz` to flat files the Rust bench
 binary can read without a numpy dependency:
 
-  data/lme_rust/corpus_ids.txt              one id per line
-  data/lme_rust/corpus_embeddings.bin       f32 LE row-major
-  data/lme_rust/query_ids.txt
-  data/lme_rust/query_embeddings.bin
-  data/lme_rust/sampled_query_indices.txt   200-query subset both impls evaluate
-  data/lme_rust/meta.json                   {n_corpus, n_queries, dim, sample_seed, sample_size}
+  tmp_data/lme_rust/corpus_ids.txt              one id per line
+  tmp_data/lme_rust/corpus_embeddings.bin       f32 LE row-major
+  tmp_data/lme_rust/query_ids.txt
+  tmp_data/lme_rust/query_embeddings.bin
+  tmp_data/lme_rust/sampled_query_indices.txt   200-query subset both impls evaluate
+  tmp_data/lme_rust/meta.json                   {n_corpus, n_queries, dim, sample_seed, sample_size}
 
 Both Python and Rust harnesses consume `sampled_query_indices.txt` so
 the eval set is identical regardless of which language seeds the RNG.
@@ -38,7 +38,7 @@ def main(argv: list[str]) -> int:
     src = DATA / "longmemeval_prepared.npz"
     if not src.exists():
         sys.stderr.write(
-            f"error: {src} not found. Run `uv run python experiments/prep_longmemeval.py` first.\n"
+            f"error: {src} not found. Run `uv run python legacy/scripts/prep_longmemeval.py` first.\n"
         )
         return 2
 

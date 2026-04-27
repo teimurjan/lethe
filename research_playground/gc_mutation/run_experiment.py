@@ -22,8 +22,8 @@ import numpy.typing as npt
 from sentence_transformers import CrossEncoder  # type: ignore[import-untyped]
 from tqdm import tqdm  # type: ignore[import-untyped]
 
-from research.gc_mutation.baselines import NoGraphStore, StaticStore
-from research.gc_mutation.config import Config
+from research_playground.gc_mutation.baselines import NoGraphStore, StaticStore
+from research_playground.gc_mutation.config import Config
 from lethe.entry import MemoryEntry, Tier, create_entry
 from benchmarks._lib.metrics import (
     compute_anchor_drift,
@@ -33,11 +33,11 @@ from benchmarks._lib.metrics import (
     ndcg_at_k,
     recall_at_k,
 )
-from research.gc_mutation.store import GCMemoryStore
+from research_playground.gc_mutation.store import GCMemoryStore
 
 
-RESULTS_DIR = Path("results")
-DATA_DIR = Path("data")
+RESULTS_DIR = Path("tmp_results")
+DATA_DIR = Path("tmp_data")
 
 
 def load_dataset_files(dataset: str) -> tuple[

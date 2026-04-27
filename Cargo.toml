@@ -12,7 +12,7 @@ members = [
     "crates/lethe-tui",
     "crates/lethe-py",
     "crates/lethe-node",
-    "crates/lethe-bench",
+    "crates/lethe-benchmark",
     "crates/lethe-claude-code",
 ]
 

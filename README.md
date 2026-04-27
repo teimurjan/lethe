@@ -105,7 +105,7 @@ Numbers on the full 199,509-turn LongMemEval S corpus, **turn-level retrieval, N
 
 **Scope.** The RIF gain is workload-specific. The mechanism targets the chronic-false-positive pattern in a single user's long-term conversation memory. On NFCorpus (a non-conversational medical IR benchmark) it doesn't transfer: three of four variants significantly regress. We diagnose this in the arXiv paper (corpus saturation + workload mismatch) and scope the claim to long-term conversational memory. Use lethe for what it's good at; don't expect it to help on general ad-hoc retrieval.
 
-Full methodology in [BENCHMARKS.md](https://github.com/teimurjan/lethe/blob/main/BENCHMARKS.md). 18 checkpoints (11 failed or null) in [RESEARCH_JOURNEY.md](https://github.com/teimurjan/lethe/blob/main/RESEARCH_JOURNEY.md). Statistical rigor and the NFCorpus replication in [arxiv/paper.tex](https://github.com/teimurjan/lethe/blob/main/arxiv/paper.tex).
+Full methodology in [BENCHMARKS.md](https://github.com/teimurjan/lethe/blob/main/BENCHMARKS.md). 18 checkpoints (11 failed or null) in [RESEARCH_JOURNEY.md](https://github.com/teimurjan/lethe/blob/main/RESEARCH_JOURNEY.md). Statistical rigor and the NFCorpus replication in [paper.tex](https://github.com/teimurjan/lethe/blob/main/paper.tex).
 
 ![](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/demo.gif)
 
