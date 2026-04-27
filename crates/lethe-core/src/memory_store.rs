@@ -259,6 +259,14 @@ impl MemoryStore {
             .unwrap_or_default()
     }
 
+    /// Read-only access to the bi-encoder. Used by callers that batch
+    /// many embeddings before calling [`add_with_embedding`] in a loop
+    /// (e.g. `markdown_store::reindex`).
+    #[must_use]
+    pub fn bi_encoder(&self) -> Option<&Arc<BiEncoder>> {
+        self.bi_encoder.as_ref()
+    }
+
     /// Add a new memory entry. Returns the id, or `None` when the
     /// content was deduped (exact-hash or near-cosine match against an
     /// existing longer entry). Mirrors `MemoryStore.add`.
@@ -278,13 +286,29 @@ impl MemoryStore {
             return Ok(None);
         }
         let emb = bi.encode(content)?;
+        self.add_with_embedding(content, emb, entry_id, session_id, turn_idx)
+    }
+
+    /// Insert an entry whose embedding is already computed. Skips the
+    /// bi-encoder call so callers can batch many encodings into one
+    /// ORT inference launch (`encode_batch`) and then loop here.
+    pub fn add_with_embedding(
+        &self,
+        content: &str,
+        emb: Array1<f32>,
+        entry_id: Option<&str>,
+        session_id: &str,
+        turn_idx: i64,
+    ) -> Result<Option<String>, crate::Error> {
+        if self.db.lock().unwrap().has_content_hash(content)? {
+            return Ok(None);
+        }
         if emb.len() != self.config.dim {
             return Err(crate::Error::DimensionMismatch {
                 expected: self.config.dim,
                 actual: emb.len(),
             });
         }
-
         let mut inner = self.inner.lock().unwrap();
         // Near-duplicate cosine check.
         if !inner.embeddings.is_empty() {
@@ -692,34 +716,44 @@ fn stack_embeddings_from_vec(buf: &[Array1<f32>]) -> Array2<f32> {
 }
 
 /// BM25 + dense IP top-k merged via RRF. Returns `(eid, rrf_score)` pairs.
+///
+/// BM25 and dense top-k are computed concurrently via `rayon::join` —
+/// they're independent and their costs are similar enough that the
+/// joined wall time is roughly `max(bm25, dense)` instead of the sum.
 fn hybrid_scored(
     inner: &Inner,
     query_emb: ArrayView1<'_, f32>,
     query: &str,
     k: usize,
 ) -> Vec<(String, f32)> {
-    let mut bm25_ids: Vec<String> = Vec::new();
-    if let Some(bm25) = &inner.bm25 {
-        let tokens = tokenize_bm25(query);
-        if !tokens.is_empty() {
+    let (bm25_ids, dense_ids) = rayon::join(
+        || -> Vec<String> {
+            let Some(bm25) = inner.bm25.as_ref() else {
+                return Vec::new();
+            };
+            let tokens = tokenize_bm25(query);
+            if tokens.is_empty() {
+                return Vec::new();
+            }
             let scores = bm25.get_scores(&tokens);
             let order = crate::faiss_flat::top_k_desc(ndarray::ArrayView1::from(&scores), k);
-            for (i, _s) in order {
-                if let Some(eid) = inner.ids.get(i) {
-                    bm25_ids.push(eid.clone());
-                }
-            }
-        }
-    }
-    let dense_ids: Vec<String> = inner
-        .flat
-        .search(query_emb, k)
-        .map(|hits| {
-            hits.into_iter()
+            order
+                .into_iter()
                 .filter_map(|(i, _)| inner.ids.get(i).cloned())
                 .collect()
-        })
-        .unwrap_or_default();
+        },
+        || -> Vec<String> {
+            inner
+                .flat
+                .search(query_emb, k)
+                .map(|hits| {
+                    hits.into_iter()
+                        .filter_map(|(i, _)| inner.ids.get(i).cloned())
+                        .collect()
+                })
+                .unwrap_or_default()
+        },
+    );
     rrf_merge(&[bm25_ids, dense_ids])
 }
 

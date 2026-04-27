@@ -15,6 +15,7 @@ use anyhow::{Context, Result};
 use lethe_core::db::MemoryDb;
 use lethe_core::npz;
 use lethe_core::registry;
+use rayon::prelude::*;
 use serde::Serialize;
 
 use crate::paths::resolve;
@@ -40,14 +41,15 @@ pub fn run(root: Option<&str>, all: bool, json_output: bool) -> Result<i32> {
             eprintln!("no projects registered");
             return Ok(1);
         }
-        for entry in entries {
-            let res = migrate_one(&entry.root);
-            out.projects.push(res);
-        }
+        // Per-project migrations are independent (separate DuckDB +
+        // npz files); fan out across cores.
+        out.projects = entries
+            .par_iter()
+            .map(|e| migrate_one(&e.root))
+            .collect();
     } else {
         let paths = resolve(root);
-        let res = migrate_one(&paths.root);
-        out.projects.push(res);
+        out.projects.push(migrate_one(&paths.root));
     }
 
     if json_output {

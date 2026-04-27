@@ -74,8 +74,9 @@ fn init_centroids(embeddings: ArrayView2<'_, f32>, k: usize) -> Array2<f32> {
 }
 
 fn assign_all(embeddings: ArrayView2<'_, f32>, centroids: ArrayView2<'_, f32>) -> Vec<usize> {
-    embeddings
-        .axis_iter(Axis(0))
+    use rayon::prelude::*;
+    let rows: Vec<_> = embeddings.axis_iter(Axis(0)).collect();
+    rows.into_par_iter()
         .map(|row| assign_cluster(row, centroids))
         .collect()
 }

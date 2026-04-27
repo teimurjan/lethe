@@ -49,31 +49,36 @@ struct UnionProject {
 impl UnionStore {
     /// Build a UnionStore from a list of registered projects. Bad
     /// projects (missing index, schema mismatch) are skipped with a
-    /// warning to stderr — same behavior as the Python helper.
+    /// warning to stderr — same behavior as the Python helper. Each
+    /// store opens in parallel since the work is dominated by DuckDB
+    /// hydration + embedding load and is independent across projects.
     pub fn open(
         projects: Vec<ProjectEntry>,
         bi_encoder: Option<Arc<BiEncoder>>,
         cross_encoder: Option<Arc<CrossEncoder>>,
         config: StoreConfig,
     ) -> Self {
-        let mut handles: Vec<UnionProject> = Vec::with_capacity(projects.len());
-        for entry in projects {
-            let store_path = entry.root.join(".lethe").join("index");
-            if !store_path.join("lethe.duckdb").exists() {
-                continue;
-            }
-            match MemoryStore::open(
-                &store_path,
-                bi_encoder.clone(),
-                cross_encoder.clone(),
-                config.clone(),
-            ) {
-                Ok(store) => handles.push(UnionProject { entry, store }),
-                Err(e) => {
-                    eprintln!("[lethe] skipping {}: {e}", entry.root.display());
+        let handles: Vec<UnionProject> = projects
+            .into_par_iter()
+            .filter_map(|entry| {
+                let store_path = entry.root.join(".lethe").join("index");
+                if !store_path.join("lethe.duckdb").exists() {
+                    return None;
                 }
-            }
-        }
+                match MemoryStore::open(
+                    &store_path,
+                    bi_encoder.clone(),
+                    cross_encoder.clone(),
+                    config.clone(),
+                ) {
+                    Ok(store) => Some(UnionProject { entry, store }),
+                    Err(e) => {
+                        eprintln!("[lethe] skipping {}: {e}", entry.root.display());
+                        None
+                    }
+                }
+            })
+            .collect();
         Self { projects: handles }
     }
 

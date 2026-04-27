@@ -116,25 +116,37 @@ impl BM25Okapi {
         if n == 0 || query.is_empty() {
             return vec![0.0_f32; n];
         }
-        // Accumulate in f64 to match `rank_bm25` (numpy default), then
-        // cast the public output to f32. Without this we drift ~5e-3
-        // on NDCG@10 vs the Python reference at 200k corpus.
-        let mut scores = vec![0.0_f64; n];
-        for q in query {
-            let Some(&idf) = self.idf.get(q) else {
-                continue;
-            };
-            for (i, freqs) in self.doc_freqs.iter().enumerate() {
-                let tf = f64::from(*freqs.get(q).unwrap_or(&0));
-                if tf == 0.0 {
-                    continue;
-                }
-                let dl = f64::from(self.doc_len[i]);
-                let denom = tf + self.k1 * (1.0 - self.b + self.b * dl / self.avgdl);
-                scores[i] += idf * (tf * (self.k1 + 1.0)) / denom;
-            }
+        // Pre-resolve idf so the per-doc inner loop only iterates the
+        // tokens that actually contribute. Then compute each doc's
+        // score independently in a rayon parallel map — accumulation
+        // is per-doc, no contention. f64 accumulation matches
+        // `rank_bm25` (numpy default); we cast back to f32 at the end.
+        use rayon::prelude::*;
+        let resolved: Vec<(&String, f64)> = query
+            .iter()
+            .filter_map(|q| self.idf.get(q).map(|idf| (q, *idf)))
+            .collect();
+        if resolved.is_empty() {
+            return vec![0.0_f32; n];
         }
-        scores.into_iter().map(|x| x as f32).collect()
+        self.doc_freqs
+            .par_iter()
+            .enumerate()
+            .map(|(i, freqs)| {
+                let dl = f64::from(self.doc_len[i]);
+                let len_norm = self.k1.mul_add(self.b * dl / self.avgdl - self.b + 1.0, 0.0);
+                let mut s = 0.0_f64;
+                for (q, idf) in &resolved {
+                    let tf = f64::from(*freqs.get(*q).unwrap_or(&0));
+                    if tf == 0.0 {
+                        continue;
+                    }
+                    let denom = tf + len_norm;
+                    s += idf * (tf * (self.k1 + 1.0)) / denom;
+                }
+                s as f32
+            })
+            .collect()
     }
 }
 

@@ -1759,6 +1759,7 @@ dependencies = [
  "clap",
  "lethe-core",
  "lethe-tui",
+ "rayon",
  "serde",
  "serde_json",
  "toml",
