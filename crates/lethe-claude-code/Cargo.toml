@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Claude Code adapter for the lethe memory store. Helpers used only by the plugin under `plugins/claude-code/` (transcript parsing, etc.). Not required to use lethe itself."
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [[bin]]
 name = "lethe-claude-code"

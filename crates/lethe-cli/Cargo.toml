@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Command-line interface for lethe — ships as the `lethe` binary."
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [[bin]]
 name = "lethe"

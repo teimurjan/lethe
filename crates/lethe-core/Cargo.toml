@@ -6,6 +6,7 @@ rust-version.workspace = true
 description = "Core retrieval library for lethe (Rust port). Hybrid BM25 + dense + cross-encoder rerank with clustered RIF."
 license.workspace = true
 repository.workspace = true
+readme = "README.md"
 
 [lib]
 path = "src/lib.rs"

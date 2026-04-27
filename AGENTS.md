@@ -97,6 +97,39 @@ LongMemEval S (200k turns, 500 questions, 200-query eval sample):
 Full methodology: `BENCHMARKS.md`. 18-checkpoint research journey:
 `RESEARCH_JOURNEY.md`. arXiv preprint source: `paper.tex`.
 
+## docs / READMEs
+
+The root `README.md` is the project landing page (linked from each
+per-crate README). Each publishable crate also has its own README
+that gets surfaced on the registry it ships to:
+
+| File | Surfaces on |
+|---|---|
+| `crates/lethe-core/README.md` | crates.io `lethe-core` |
+| `crates/lethe-cli/README.md`  | crates.io `lethe-cli` |
+| `crates/lethe-tui/README.md`  | crates.io `lethe-tui` |
+| `crates/lethe-claude-code/README.md` | crates.io `lethe-claude-code` |
+| `crates/lethe-py/README.md`   | PyPI `lethe-memory` |
+| `crates/lethe-node/README.md` | npm `lethe` |
+| Root `README.md`              | GitHub repo landing page |
+
+When you edit the root `README.md`, **always check whether the change
+should propagate to one or more per-crate READMEs.** Examples that
+need to fan out:
+
+- Install instructions changed → update `lethe-cli/README.md`,
+  `lethe-py/README.md`, `lethe-node/README.md`.
+- Top-level usage example tweaked → update the matching per-binding
+  example.
+- New benchmark headline number → update the table referenced from
+  each README's "see also" block (or just the root, if the per-crate
+  READMEs only link to the root for numbers — current default).
+- Architecture diagram or feature list change → update at minimum the
+  `lethe-core/README.md` since library users see it first.
+
+If a change is purely landing-page content (badges, plugin GIFs,
+"who is this for"), it stays in the root only.
+
 ## git + release
 
 - Conventional commits. release-please bumps version on `feat:` /

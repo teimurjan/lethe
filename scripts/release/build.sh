@@ -103,23 +103,28 @@ build_rust_target() {
     echo "  -> $dst"
   done
 
-  # Tarball the per-target binaries together (matches Homebrew formula expectation).
-  local stage="lethe-${fname}"
-  rm -rf "$DIST_DIR/$stage"
-  mkdir -p "$DIST_DIR/$stage"
+  # Tarball the per-target binaries together (matches Homebrew formula
+  # expectation). Stage in a temp dir outside $DIST_DIR so we don't
+  # collide with the loose `lethe-<friendly>` binary already there.
+  local archive_base="lethe-${fname}"
+  local stage_root
+  stage_root="$(mktemp -d "${TMPDIR:-/tmp}/lethe-pkg.XXXXXX")"
+  local stage_dir="$stage_root/$archive_base"
+  mkdir -p "$stage_dir"
   for entry in "${RUST_BINS[@]}"; do
     local bin="${entry##*:}"
-    cp "$DIST_DIR/${bin}-${fname}${ext}" "$DIST_DIR/$stage/${bin}${ext}"
+    cp "$DIST_DIR/${bin}-${fname}${ext}" "$stage_dir/${bin}${ext}"
   done
-  cp "$ROOT_DIR/README.md" "$ROOT_DIR/LICENSE" "$DIST_DIR/$stage/" 2>/dev/null || true
+  cp "$ROOT_DIR/README.md" "$ROOT_DIR/LICENSE" "$stage_dir/" 2>/dev/null || true
+
   if [[ "$target" == *windows* ]]; then
-    (cd "$DIST_DIR" && zip -qr "${stage}.zip" "$stage")
-    echo "  -> $DIST_DIR/${stage}.zip"
+    (cd "$stage_root" && zip -qr "$DIST_DIR/${archive_base}.zip" "$archive_base")
+    echo "  -> $DIST_DIR/${archive_base}.zip"
   else
-    (cd "$DIST_DIR" && tar -czf "${stage}.tar.gz" "$stage")
-    echo "  -> $DIST_DIR/${stage}.tar.gz"
+    (cd "$stage_root" && tar -czf "$DIST_DIR/${archive_base}.tar.gz" "$archive_base")
+    echo "  -> $DIST_DIR/${archive_base}.tar.gz"
   fi
-  rm -rf "$DIST_DIR/$stage"
+  rm -rf "$stage_root"
 }
 
 build_native() {
