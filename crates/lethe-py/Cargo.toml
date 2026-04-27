@@ -1,11 +1,11 @@
 [package]
 name = "lethe-py"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.94"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Python bindings for lethe-core (built via maturin, importable as `lethe_rust`)."
-license = "MIT"
-repository = "https://github.com/teimurjan/lethe"
+license.workspace = true
+repository.workspace = true
 publish = false
 
 [lib]

@@ -8,7 +8,7 @@ Date: 2026-04-26T16:29:20
 | Implementation | Cold start (ms) |
 |---|---|
 | Python `import lethe.memory_store; import lethe.encoders` | 140 |
-| Rust `lethe-rs --version` | 23 |
+| Rust `lethe --version` | 23 |
 
 Rust cold-start speedup: ~6.2×
 

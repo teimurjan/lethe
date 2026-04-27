@@ -1,24 +1,29 @@
-//! `lethe-rs` — Rust counterpart to the Python `lethe` CLI.
+//! `lethe` — CLI for the lethe memory store.
 //!
 //! Subcommands match `legacy/lethe/cli.py` byte-for-byte on their JSON
 //! outputs; the Claude Code plugin scripts parse stdout, so any drift
 //! breaks them. See the porting plan
 //! (`.claude/plans/functional-herding-boot.md`) for the contract.
+//!
+//! With no subcommand the TUI launches when stdout is a terminal;
+//! otherwise `--help` is printed and the binary exits non-zero.
 
 #![allow(clippy::print_stdout)] // CLI: stdout is the interface.
 
-use clap::{Parser, Subcommand};
+use std::io::IsTerminal;
+
+use clap::{CommandFactory, Parser, Subcommand};
 
 mod commands;
 mod paths;
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "lethe-rs",
+    name = "lethe",
     version,
-    about = "Persistent memory store for LLM agents (Rust port).",
+    about = "Persistent memory store for LLM agents.",
     long_about = "Persistent memory store for LLM agents — hybrid retrieval, RIF, optional enrichment.\n\
-                  This is the Rust port; ships alongside Python `lethe`."
+                  Run with no arguments to launch the interactive TUI."
 )]
 struct Cli {
     /// Project root. Default: git root of CWD.
@@ -26,7 +31,7 @@ struct Cli {
     root: Option<String>,
 
     #[command(subcommand)]
-    cmd: Cmd,
+    cmd: Option<Cmd>,
 }
 
 #[derive(Subcommand, Debug)]
@@ -86,7 +91,7 @@ enum Cmd {
         #[command(subcommand)]
         action: ProjectsCmd,
     },
-    /// Interactive TUI (launches the `lethe-tui` binary).
+    /// Interactive TUI. Implicit when `lethe` is run with no args in a terminal.
     Tui,
 }
 
@@ -130,7 +135,21 @@ fn main() -> std::process::ExitCode {
 
 fn dispatch(cli: Cli) -> anyhow::Result<i32> {
     let root = cli.root.as_deref();
-    match cli.cmd {
+    let cmd = match cli.cmd {
+        Some(c) => c,
+        None => {
+            // No subcommand: open the TUI when interactive, else print
+            // help so scripted callers see the contract instead of a
+            // hung process.
+            if std::io::stdout().is_terminal() {
+                Cmd::Tui
+            } else {
+                Cli::command().print_help()?;
+                return Ok(2);
+            }
+        }
+    };
+    match cmd {
         Cmd::Index {
             dir,
             json_output,
@@ -157,7 +176,7 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         Cmd::Reset { yes } => commands::reset::run(root, yes),
         Cmd::Enrich { .. } => {
             eprintln!(
-                "lethe-rs does not implement `enrich` in v1 — run the Python `lethe enrich` instead."
+                "lethe does not implement `enrich` in v1 — run the legacy Python `lethe enrich` instead."
             );
             Ok(2)
         }

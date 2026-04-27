@@ -1,4 +1,4 @@
-//! `lethe-rs reset` — wipe `.lethe/index/` (markdown stays).
+//! `lethe reset` — wipe `.lethe/index/` (markdown stays).
 
 use anyhow::Result;
 

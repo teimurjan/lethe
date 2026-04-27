@@ -25,19 +25,24 @@ What happens after install:
 - Claude sees recent memory at session start and calls the `recall` skill when a past session in this project would help.
 - For cross-repo context, the `recall-global` skill searches every registered project at once (uses `lethe search --all` under the hood).
 
-Update: `uv tool install --upgrade lethe-memory && /reload-plugins`
+Update: `brew upgrade lethe && /reload-plugins`
 
 See [plugins/claude-code/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/claude-code/README.md) for the full hook table, config knobs, and debugging.
 
 ### As a CLI
 
 ```bash
-uv tool install lethe-memory
-lethe --version
+brew install teimurjan/lethe/lethe        # macOS / Linuxbrew
+# or
+cargo install lethe-cli                   # any platform with a Rust toolchain
+# or download a tarball from
+# https://github.com/teimurjan/lethe/releases
 
-lethe index                                     # reindex .lethe/memory
-lethe search "your query" --top-k 5             # single project
-lethe search "your query" --all --top-k 5       # all registered projects
+lethe --version
+lethe                                            # no args → opens TUI
+lethe index                                      # reindex .lethe/memory
+lethe search "your query" --top-k 5              # single project
+lethe search "your query" --all --top-k 5        # all registered projects
 lethe projects list
 lethe status
 ```
@@ -46,42 +51,41 @@ lethe status
 
 ![lethe TUI](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/tui.gif)
 
-```bash
-uv tool install --force 'lethe-memory[tui]'
-# or, if lethe is already installed as a uv tool:
-uv tool install --force --reinstall --with textual lethe-memory
+`lethe` with no subcommand opens the TUI when stdout is a terminal; pass `lethe tui` to force it from a script. Keys inside: `↑↓` nav, `⏎` search/open, `Esc` back, `Ctrl+Q` quit. Type anywhere to jump focus to the search box.
 
-lethe tui
-```
-
-`uv tool install` does not read `[project.optional-dependencies]` from extras syntax unless quoted; the `--with textual` form is the reliable fallback. Keys inside the TUI: `↑↓` nav, `⏎` search/open, `Esc` back, `Ctrl+Q` quit. Type anywhere to jump focus to the search box.
-
-### As a Python library
+### As a Python binding
 
 ```bash
-pip install lethe-memory
+pip install lethe-rust
 ```
 
 ```python
-from lethe import MemoryStore
-from sentence_transformers import SentenceTransformer, CrossEncoder
+from lethe_rust import MemoryStore
 
-store = MemoryStore(
-    "./my_memories",
-    bi_encoder=SentenceTransformer("all-MiniLM-L6-v2"),
-    cross_encoder=CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2"),
-)
+store = MemoryStore("./my_memories")  # bi-/cross-encoders default to MiniLM
 
 store.add("I prefer window seats on flights", session_id="trip")
 store.add("My wife needs aisle seats", session_id="trip")
 store.add("I work at Google as a software engineer", session_id="work")
 
-results = store.retrieve("What are my travel preferences?", k=5)
-for entry_id, content, score in results:
-    print(f"  [{score:.1f}] {content}")
+for hit in store.retrieve("What are my travel preferences?", k=5):
+    print(f"  [{hit.score:.1f}] {hit.content}")
 
 store.save()
-store.close()
+```
+
+### As a Node binding
+
+```bash
+npm install @lethe/memory
+```
+
+```typescript
+import { MemoryStore } from "@lethe/memory";
+
+const store = new MemoryStore("./my_memories", { dim: 384 });
+await store.add("first entry");
+const hits = await store.retrieve("query", { k: 5 });
 ```
 
 ## Benchmark

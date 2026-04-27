@@ -15,6 +15,17 @@ members = [
     "crates/lethe-bench",
 ]
 
+# One source of truth for the workspace version, propagated via
+# `version.workspace = true` in each member crate. release-please bumps
+# this line and the linked-versions config keeps PyPI/npm aligned.
+[workspace.package]
+version = "0.6.0"
+edition = "2021"
+license = "MIT"
+authors = ["Teimur Gasanov"]
+repository = "https://github.com/teimurjan/lethe"
+rust-version = "1.94"
+
 # Shared dependency versions so every crate links the same builds.
 [workspace.dependencies]
 ndarray = { version = "0.17", default-features = false, features = ["std", "rayon"] }

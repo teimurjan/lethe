@@ -26,8 +26,9 @@ benchmarks = ["beir>=2.0", "datasets>=2.0", "matplotlib>=3.7", "tqdm>=4.60", "se
 dev = ["pytest>=7.0", "pytest-cov>=4.0", "mypy>=1.0"]
 tui = ["textual>=0.80"]
 
-[project.scripts]
-lethe = "lethe.cli:main"
+# `[project.scripts]` removed: the `lethe` CLI is now the Rust binary
+# from `crates/lethe-cli`. This package is the legacy Python library;
+# importing `lethe.cli:main` directly still works for archival use.
 
 [tool.hatch.build.targets.wheel]
 packages = ["lethe"]

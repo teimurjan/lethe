@@ -3,46 +3,40 @@
 ## Setup
 
 ```bash
+# Rust toolchain (1.94+)
+rustup toolchain install stable
+
+# Python venv for the legacy library + parity bench
 uv venv --python 3.12
-uv pip install -e 'legacy/[dev,tui]'
+uv pip install -e 'legacy/[dev]'
 ```
 
-`dev` pulls pytest + mypy; `tui` pulls textual (needed only for `lethe tui`). Drop `tui` if you don't need it.
-
-The Python implementation lives under `legacy/` after the Rust port; see `crates/` for the Rust workspace and `benchmarks/` for the Python ↔ Rust parity bench.
+The CLI is the Rust binary `lethe` (built from `crates/lethe-cli`). The Python package under `legacy/` is the original implementation, kept for the research trail and to back the parity bench. PyO3 bindings (`crates/lethe-py`) and napi-rs bindings (`crates/lethe-node`) are the supported language-binding paths going forward.
 
 ## Run tests
 
 ```bash
+cargo test --workspace
 cd legacy && uv run pytest tests/ -q
 ```
 
-178 Python tests + 8 PyO3 parity tests = 186, ~3 minutes (PyO3 set loads ONNX models). The pure-Python set runs in ~2 seconds. No network, no API keys required.
+Rust: 68 unit tests, sub-second. Python: 178 production + 8 PyO3 parity = 186, ~3 minutes (the PyO3 set loads ONNX models). No network, no API keys required.
 
 ## Run the CLI locally
 
-The editable install wires `lethe` to `legacy/lethe/cli.py`. Two ways to invoke it:
-
 ```bash
-uv run lethe search "query"     # uses the project's .venv — always current
+cargo run -p lethe-cli -- search "query"     # debug build, fast iteration
+cargo install --path crates/lethe-cli        # install local build to ~/.cargo/bin
+lethe                                         # opens TUI (if stdout is a terminal)
 ```
 
-…or install the working tree as your global `lethe` so you can just type `lethe` anywhere:
-
-```bash
-uv tool install --force --editable ./legacy --with 'textual>=0.80'
-lethe tui
-```
-
-`--force --editable` overwrites any previously-installed `lethe` (e.g. from `uv tool install lethe-memory`). `--with textual>=0.80` adds the `tui` extra — `uv tool install` doesn't honor `[project.optional-dependencies]` by default. Check which binary is active with `which lethe` if `tui` comes back as an invalid subcommand.
-
-Common commands:
+Common commands once installed:
 
 ```bash
 lethe index                     # reindex .lethe/memory in the current repo
 lethe search "query" --top-k 5
 lethe search "query" --all      # cross-project via ~/.lethe/projects.json
-lethe tui                       # interactive browser (needs textual)
+lethe tui                       # explicit TUI (same as no-arg in a TTY)
 lethe projects list
 ```
 
@@ -55,7 +49,7 @@ Point Claude Code's marketplace at this checkout:
 /plugin install lethe
 ```
 
-Hooks run `bash ${CLAUDE_PLUGIN_ROOT}/hooks/*.sh`; they invoke `lethe` from PATH first, then fall back to `uvx --from git+... lethe`. With an editable install on PATH, your local changes hit the hooks immediately — no publish needed.
+Hooks run `bash ${CLAUDE_PLUGIN_ROOT}/hooks/*.sh`; they invoke `lethe` from PATH. After `cargo install --path crates/lethe-cli`, the binary is on `~/.cargo/bin/lethe` and the hooks pick it up — no publish needed.
 
 Turn on hook traces while iterating:
 
@@ -67,4 +61,4 @@ After editing `plugins/claude-code/` files (hooks, skills, manifest), run `/relo
 
 ## Commit conventions
 
-Conventional commits. `release-please` only bumps on `feat:` / `fix:`, so use those sparingly — everything else (`chore:`, `docs:`, `refactor:`, `test:`) does not trigger a PyPI release. Breaking changes use `feat!:` or `fix!:`.
+Conventional commits. `release-please` only bumps on `feat:` / `fix:`. The workspace ships four artifacts on the same version (Rust binary via Homebrew/crates.io, `lethe-rust` wheel on PyPI, `@lethe/memory` on npm), so a `feat:` triggers releases everywhere — use it sparingly. Everything else (`chore:`, `docs:`, `refactor:`, `test:`) does not trigger a release. Breaking changes use `feat!:` or `fix!:`.

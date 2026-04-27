@@ -1,4 +1,4 @@
-//! `lethe-rs index` — reindex `.lethe/memory/*.md` into the store.
+//! `lethe index` — reindex `.lethe/memory/*.md` into the store.
 
 use std::path::PathBuf;
 

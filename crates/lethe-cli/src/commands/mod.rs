@@ -1,4 +1,4 @@
-//! Subcommand implementations for `lethe-rs`.
+//! Subcommand implementations for `lethe`.
 
 pub mod config;
 pub mod expand;

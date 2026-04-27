@@ -1,4 +1,4 @@
-//! `lethe-rs expand <chunk_id>` — print the full chunk body.
+//! `lethe expand <chunk_id>` — print the full chunk body.
 
 use anyhow::Result;
 use lethe_core::db::MemoryDb;

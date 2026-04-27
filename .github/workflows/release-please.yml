@@ -8,34 +8,12 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  id-token: write
 
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
     steps:
-      - id: release
-        uses: googleapis/release-please-action@v4
+      - uses: googleapis/release-please-action@v4
         with:
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
-
-  publish:
-    needs: release-please
-    if: needs.release-please.outputs.release_created == 'true' || github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    environment:
-      name: pypi
-      url: https://pypi.org/p/lethe-memory
-    permissions:
-      id-token: write
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-      - run: python -m pip install --upgrade build
-      - run: python -m build
-      - uses: pypa/gh-action-pypi-publish@release/v1

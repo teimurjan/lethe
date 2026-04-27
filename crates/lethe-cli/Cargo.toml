@@ -1,19 +1,19 @@
 [package]
 name = "lethe-cli"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.94"
-description = "Command-line interface for lethe (Rust port). Ships as the `lethe-rs` binary."
-license = "MIT"
-repository = "https://github.com/teimurjan/lethe"
-publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Command-line interface for lethe — ships as the `lethe` binary."
+license.workspace = true
+repository.workspace = true
 
 [[bin]]
-name = "lethe-rs"
+name = "lethe"
 path = "src/main.rs"
 
 [dependencies]
-lethe-core = { path = "../lethe-core" }
+lethe-core = { path = "../lethe-core", version = "0.6.0" }
+lethe-tui = { path = "../lethe-tui", version = "0.6.0" }
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true

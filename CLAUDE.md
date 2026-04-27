@@ -17,14 +17,19 @@ Ships as a **Claude Code plugin** (`plugins/claude-code/`) that drops a `.lethe/
 ## layout
 
 ```
-crates/               # Rust workspace (production)
+crates/               # Rust workspace (production); shared workspace version
 ├── lethe-core/       # Library: tokenize, bm25, faiss_flat, rrf, dedup, rif,
 │                     #   kmeans, encoders, db, memory_store, union_store, …
-├── lethe-cli/        # `lethe-rs` binary (clap)
-├── lethe-tui/        # `lethe-tui` binary (ratatui)
+│                     #   → crates.io: lethe-core
+├── lethe-cli/        # `lethe` binary (clap; embeds TUI on no-arg invocation)
+│                     #   → crates.io: lethe-cli, Homebrew: lethe
+├── lethe-tui/        # ratatui library (`lethe_tui::run()`); not a binary
+│                     #   → crates.io: lethe-tui
 ├── lethe-py/         # PyO3 bindings (importable as `lethe_rust`)
-├── lethe-node/       # napi-rs bindings (`@lethe/memory-rust`)
-└── lethe-bench/      # parity bench helper binary
+│                     #   → PyPI: lethe-rust
+├── lethe-node/       # napi-rs bindings
+│                     #   → npm: @lethe/memory
+└── lethe-bench/      # internal parity bench helper binary (publish = false)
 
 benchmarks/           # Python ↔ Rust parity bench (1-1)
 ├── prepare.py        # exports LongMemEval flat files for the Rust side
@@ -58,14 +63,16 @@ research/             # Experimental / non-production code
 ## commands
 
 ```bash
-# Python (legacy package — still the production surface today)
-uv venv --python 3.12 && uv pip install -e legacy/
+# Rust workspace (the CLI you ship)
+cargo build --workspace --release        # produces target/release/lethe
+cargo test --workspace
+cargo clippy --workspace --all-targets -- -D warnings
+cargo fmt --all -- --check
+
+# Legacy Python library (research trail — bindings ship as `lethe-rust`)
+uv pip install -e legacy/
 cd legacy && uv run pytest tests/ -v
 uv run python legacy/benchmarks/run_benchmark.py
-
-# Rust port
-cargo build --workspace --release
-cargo test --workspace
 
 # Python ↔ Rust parity bench
 uv run python benchmarks/prepare.py
@@ -73,17 +80,15 @@ uv run python benchmarks/longmemeval.py --compare
 uv run python benchmarks/components.py --compare
 uv run python benchmarks/latency.py --compare
 
-# CLI (exposed as console script `lethe`)
-lethe index                              # reindex .lethe/memory (auto-registers project)
+# CLI surface (Rust binary `lethe`)
+lethe                                    # no args → opens TUI (when stdout is a TTY)
+lethe index                              # reindex .lethe/memory
 lethe search "query" --top-k 5           # single-project
 lethe search "query" --all --top-k 5     # all registered projects (DuckDB ATTACH)
 lethe projects list|add|remove|prune     # manage ~/.lethe/projects.json
 lethe expand <chunk-id>
 lethe status
-lethe tui                                # interactive TUI (needs `uv pip install -e '.[tui]'`)
-
-# Run CLI without local install
-uvx --from git+https://github.com/teimurjan/lethe lethe --version
+lethe tui                                # explicit TUI (same as no-arg in TTY)
 ```
 
 ## key architecture decisions

@@ -1,4 +1,4 @@
-//! `lethe-rs status` — diagnostic JSON.
+//! `lethe status` — diagnostic JSON.
 
 use anyhow::Result;
 use lethe_core::db::MemoryDb;

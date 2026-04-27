@@ -1,13 +1,15 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
-  "release-type": "python",
   "packages": {
     ".": {
-      "package-name": "lethe-memory",
+      "release-type": "rust",
+      "package-name": "lethe",
+      "component": "lethe",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         "legacy/lethe/__init__.py",
         "legacy/pyproject.toml",
+        "crates/lethe-py/pyproject.toml",
         {
           "type": "json",
           "path": ".claude-plugin/marketplace.json",
@@ -19,9 +21,20 @@
           "jsonpath": "$.plugins[*].version"
         }
       ]
+    },
+    "crates/lethe-node": {
+      "release-type": "node",
+      "package-name": "@lethe/memory",
+      "component": "lethe-node",
+      "changelog-path": "CHANGELOG.md"
     }
   },
   "plugins": [
+    {
+      "type": "linked-versions",
+      "groupName": "lethe",
+      "components": ["lethe", "lethe-node"]
+    },
     {
       "type": "sentence-case"
     }

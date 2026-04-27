@@ -1,20 +1,28 @@
 {
-  "name": "@lethe/memory-rust",
-  "version": "0.1.0",
-  "description": "Node bindings to the Rust port of lethe.",
+  "name": "@lethe/memory",
+  "version": "0.6.0",
+  "description": "Node bindings to the lethe memory store (Rust core via napi-rs).",
   "main": "index.js",
   "types": "index.d.ts",
-  "private": true,
+  "license": "MIT",
+  "repository": "github:teimurjan/lethe",
   "napi": {
-    "name": "lethe-memory-rust",
+    "name": "lethe",
     "triples": {
       "defaults": false,
-      "additional": ["x86_64-apple-darwin", "aarch64-apple-darwin"]
+      "additional": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+        "x86_64-pc-windows-msvc"
+      ]
     }
   },
   "scripts": {
     "build": "napi build --platform --release",
-    "build:debug": "napi build --platform"
+    "build:debug": "napi build --platform",
+    "prepublishOnly": "napi prepublish -t npm"
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0"

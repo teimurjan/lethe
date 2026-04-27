@@ -4,8 +4,8 @@ build-backend = "maturin"
 
 [project]
 name = "lethe-rust"
-version = "0.1.0"
-description = "PyO3 bindings to the Rust port of lethe."
+version = "0.6.0" # x-release-please-version
+description = "PyO3 bindings to the lethe memory store."
 requires-python = ">=3.9"
 license = { text = "MIT" }
 

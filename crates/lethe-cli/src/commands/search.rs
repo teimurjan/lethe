@@ -1,4 +1,4 @@
-//! `lethe-rs search` — local + cross-project retrieval.
+//! `lethe search` — local + cross-project retrieval.
 
 use std::collections::HashSet;
 use std::sync::Arc;

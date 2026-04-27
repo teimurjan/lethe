@@ -1,5 +1,10 @@
 //! `lethe-tui` — ratatui counterpart to `legacy/lethe/tui.py`.
 //!
+//! Library entry point: callers invoke [`run`] which owns the full
+//! terminal lifecycle (`enable_raw_mode`, `EnterAlternateScreen`,
+//! event loop, cleanup). The CLI's no-arg path and explicit `tui`
+//! subcommand both call into this function.
+//!
 //! Layout:
 //!   ┌── lethe ─── › <scope> ─────────────────────────────┐
 //!   │ Projects (N)        │ all projects ▸ █             │
@@ -40,7 +45,9 @@ use std::time::Duration;
 
 use crate::app::{App, Focus};
 
-fn main() -> Result<()> {
+/// Run the TUI to completion. Owns the terminal lifecycle so callers
+/// only need to handle the returned `Result`.
+pub fn run() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen, EnableMouseCapture)?;

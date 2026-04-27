@@ -1,4 +1,4 @@
-//! `lethe-rs projects {list, add, remove, prune}` — registry.
+//! `lethe projects {list, add, remove, prune}` — registry.
 
 use anyhow::Result;
 use lethe_core::registry;

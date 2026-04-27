@@ -24,7 +24,7 @@ pub struct ResultRow {
     /// rendered yet but useful when "open in editor" lands.
     #[allow(dead_code)]
     pub project_root: Option<PathBuf>,
-    /// Surfaced once `lethe-tui` learns to delegate to `lethe-rs expand`.
+    /// Surfaced once `lethe-tui` learns to delegate to `lethe expand`.
     #[allow(dead_code)]
     pub id: String,
     pub content: String,

@@ -1,4 +1,4 @@
-//! `lethe-rs config get|set` — TOML config rd/wr.
+//! `lethe config get|set` — TOML config rd/wr.
 
 use anyhow::Result;
 
@@ -47,7 +47,7 @@ pub fn run(
         }
         "set" => {
             let (Some(k), Some(v)) = (key, value) else {
-                eprintln!("usage: lethe-rs config set KEY VALUE");
+                eprintln!("usage: lethe config set KEY VALUE");
                 return Ok(2);
             };
             let coerced = coerce_scalar(v);

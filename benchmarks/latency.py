@@ -4,7 +4,7 @@ Measures the practical command-line latency you actually feel:
 
   - Cold start: fresh process invocation that just initializes the
     pipeline. Python imports `lethe.memory_store` + `lethe.encoders`;
-    Rust runs `lethe-rs --version`.
+    Rust runs `lethe --version`.
   - Warm retrieve: subprocess per query, full boot + retrieval. Same
     fixed corpus seeded once via Python, queried by both impls.
 
@@ -129,10 +129,10 @@ def time_rust_warm(path: Path, rs_cli: str) -> tuple[float, float]:
 
 def run_for_impl(impl: str) -> dict:
     """Returns the same JSON shape regardless of which impl ran."""
-    rs_cli = shutil.which("lethe-rs") or str(REPO / "target" / "release" / "lethe-rs")
+    rs_cli = shutil.which("lethe") or str(REPO / "target" / "release" / "lethe")
     if impl == "rust" and not Path(rs_cli).exists():
         raise SystemExit(
-            "lethe-rs not built; run `cargo build --release -p lethe-cli` first."
+            "lethe not built; run `cargo build --release -p lethe-cli` first."
         )
 
     cold_samples = time_rust_cold(rs_cli) if impl == "rust" else time_python_cold()
@@ -169,7 +169,7 @@ def write_compare_report(py: dict, rs: dict) -> Path:
         "| Implementation | Cold start (ms) |",
         "|---|---|",
         f"| Python `import lethe.memory_store; import lethe.encoders` | {py['cold_median_ms']:.0f} |",
-        f"| Rust `lethe-rs --version` | {rs['cold_median_ms']:.0f} |",
+        f"| Rust `lethe --version` | {rs['cold_median_ms']:.0f} |",
         "",
         f"Rust cold-start speedup: ~{py['cold_median_ms'] / max(rs['cold_median_ms'], 1):.1f}×",
         "",
@@ -212,11 +212,11 @@ def main(argv: list[str]) -> int:
         p.print_help()
         return 2
 
-    # Build release lethe-rs / lethe-bench up front so timing isn't polluted.
-    find_rust_bin()  # ensures `lethe-bench` exists; the CLI uses target/release/lethe-rs
-    rs_cli = shutil.which("lethe-rs") or str(REPO / "target" / "release" / "lethe-rs")
+    # Build release lethe / lethe-bench up front so timing isn't polluted.
+    find_rust_bin()  # ensures `lethe-bench` exists; the CLI uses target/release/lethe
+    rs_cli = shutil.which("lethe") or str(REPO / "target" / "release" / "lethe")
     if not Path(rs_cli).exists():
-        sys.stderr.write("[latency] building release lethe-rs…\n")
+        sys.stderr.write("[latency] building release lethe…\n")
         subprocess.check_call(
             ["cargo", "build", "--release", "-p", "lethe-cli"], cwd=REPO
         )

@@ -1,12 +1,11 @@
 [package]
 name = "lethe-core"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.94"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
 description = "Core retrieval library for lethe (Rust port). Hybrid BM25 + dense + cross-encoder rerank with clustered RIF."
-license = "MIT"
-repository = "https://github.com/teimurjan/lethe"
-publish = false
+license.workspace = true
+repository.workspace = true
 
 [lib]
 path = "src/lib.rs"
