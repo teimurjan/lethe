@@ -1,4 +1,4 @@
-"""PyO3 behavioral parity: `lethe.MemoryStore` ↔ `lethe_rust.MemoryStore`.
+"""PyO3 behavioral parity: `lethe.MemoryStore` ↔ `lethe_memory.MemoryStore`.
 
 Layer 4 of the Rust-port migration confidence ladder. Verifies that
 both implementations produce equivalent *observable* behavior on the
@@ -14,7 +14,7 @@ top-K *ids* may not be bit-identical; we assert ≥ 0.6 Jaccard overlap
 on top-5 for a deterministic 30-entry corpus, which is the same
 empirical floor used in the LongMemEval Layer 1 bench.
 
-Skips automatically if `lethe_rust` is not installed
+Skips automatically if `lethe_memory` is not installed
 (`uv run maturin develop --release -m crates/lethe-py/Cargo.toml`).
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ from pathlib import Path
 
 import pytest
 
-lethe_rust = pytest.importorskip("lethe_rust")
+lethe_memory = pytest.importorskip("lethe_memory")
 
 from lethe.encoders import OnnxBiEncoder, OnnxCrossEncoder
 from lethe.memory_store import MemoryStore as PyStore
@@ -91,8 +91,8 @@ def py_store(encoders, tmp_path: Path) -> Iterator[PyStore]:
 
 
 @pytest.fixture
-def rs_store(tmp_path: Path) -> Iterator[lethe_rust.MemoryStore]:
-    store = lethe_rust.MemoryStore(
+def rs_store(tmp_path: Path) -> Iterator[lethe_memory.MemoryStore]:
+    store = lethe_memory.MemoryStore(
         str(tmp_path / "rs"), bi_encoder=BI, cross_encoder=CROSS
     )
     yield store
@@ -109,7 +109,7 @@ def _seed(store, ids_returned: list[str]) -> None:
 def _retrieve_ids(store, query: str, k: int) -> list[str]:
     if isinstance(store, PyStore):
         return [eid for eid, _, _ in store.retrieve(query, k=k)]
-    # lethe_rust returns Hit objects.
+    # lethe_memory returns Hit objects.
     return [h.id for h in store.retrieve(query, k=k)]
 
 
@@ -137,7 +137,7 @@ def test_add_dedups_after_reopen(encoders, tmp_path: Path):
     content = "Persistence test — DuckDB hash table preserves dedup state."
 
     s_py = PyStore(py_path, bi_encoder=bi, cross_encoder=xenc, dim=bi.get_embedding_dimension())
-    s_rs = lethe_rust.MemoryStore(str(rs_path), bi_encoder=BI, cross_encoder=CROSS)
+    s_rs = lethe_memory.MemoryStore(str(rs_path), bi_encoder=BI, cross_encoder=CROSS)
     assert s_py.add(content) is not None
     assert s_rs.add(content) is not None
     s_py.save()
@@ -145,7 +145,7 @@ def test_add_dedups_after_reopen(encoders, tmp_path: Path):
     del s_py, s_rs
 
     s_py2 = PyStore(py_path, bi_encoder=bi, cross_encoder=xenc, dim=bi.get_embedding_dimension())
-    s_rs2 = lethe_rust.MemoryStore(str(rs_path), bi_encoder=BI, cross_encoder=CROSS)
+    s_rs2 = lethe_memory.MemoryStore(str(rs_path), bi_encoder=BI, cross_encoder=CROSS)
     assert s_py2.add(content) is None, "Python should still dedup after reopen"
     assert s_rs2.add(content) is None, "Rust should still dedup after reopen"
 
@@ -233,7 +233,7 @@ def test_persistence_roundtrip(encoders, tmp_path: Path):
     rs_path = tmp_path / "rs"
 
     s_py = PyStore(py_path, bi_encoder=bi, cross_encoder=xenc, dim=bi.get_embedding_dimension())
-    s_rs = lethe_rust.MemoryStore(str(rs_path), bi_encoder=BI, cross_encoder=CROSS)
+    s_rs = lethe_memory.MemoryStore(str(rs_path), bi_encoder=BI, cross_encoder=CROSS)
     for content in CORPUS[:10]:
         s_py.add(content)
         s_rs.add(content)
@@ -242,7 +242,7 @@ def test_persistence_roundtrip(encoders, tmp_path: Path):
     del s_py, s_rs
 
     s_py2 = PyStore(py_path, bi_encoder=bi, cross_encoder=xenc, dim=bi.get_embedding_dimension())
-    s_rs2 = lethe_rust.MemoryStore(str(rs_path), bi_encoder=BI, cross_encoder=CROSS)
+    s_rs2 = lethe_memory.MemoryStore(str(rs_path), bi_encoder=BI, cross_encoder=CROSS)
     assert len(s_py2.entries) == 10
     assert s_rs2.size() == 10
 

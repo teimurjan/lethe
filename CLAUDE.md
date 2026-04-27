@@ -25,8 +25,8 @@ crates/               # Rust workspace (production); shared workspace version
 │                     #   → crates.io: lethe-cli, Homebrew: lethe
 ├── lethe-tui/        # ratatui library (`lethe_tui::run()`); not a binary
 │                     #   → crates.io: lethe-tui
-├── lethe-py/         # PyO3 bindings (importable as `lethe_rust`)
-│                     #   → PyPI: lethe-rust
+├── lethe-py/         # PyO3 bindings (importable as `lethe_memory`)
+│                     #   → PyPI: lethe-memory
 ├── lethe-node/       # napi-rs bindings
 │                     #   → npm: lethe
 ├── lethe-bench/      # internal parity bench helper binary (publish = false)
@@ -74,7 +74,7 @@ cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 
-# Legacy Python library (research trail — bindings ship as `lethe-rust`)
+# Legacy Python library (research trail — installed as `lethe-memory-legacy`)
 uv pip install -e legacy/
 cd legacy && uv run pytest tests/ -v
 uv run python legacy/benchmarks/run_benchmark.py

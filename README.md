@@ -56,11 +56,11 @@ lethe status
 ### As a Python binding
 
 ```bash
-pip install lethe-rust
+pip install lethe-memory
 ```
 
 ```python
-from lethe_rust import MemoryStore
+from lethe_memory import MemoryStore
 
 store = MemoryStore("./my_memories")  # bi-/cross-encoders default to MiniLM
 

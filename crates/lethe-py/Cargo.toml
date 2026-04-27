@@ -3,13 +3,13 @@ name = "lethe-py"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Python bindings for lethe-core (built via maturin, importable as `lethe_rust`)."
+description = "Python bindings for lethe-core (built via maturin, importable as `lethe_memory`)."
 license.workspace = true
 repository.workspace = true
 publish = false
 
 [lib]
-name = "lethe_rust"
+name = "lethe_memory"
 crate-type = ["cdylib"]
 
 [dependencies]

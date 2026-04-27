@@ -61,4 +61,4 @@ After editing `plugins/claude-code/` files (hooks, skills, manifest), run `/relo
 
 ## Commit conventions
 
-Conventional commits. `release-please` only bumps on `feat:` / `fix:`. The workspace ships four artifacts on the same version (Rust binary via Homebrew/crates.io, `lethe-rust` wheel on PyPI, `lethe` on npm), so a `feat:` triggers releases everywhere — use it sparingly. Everything else (`chore:`, `docs:`, `refactor:`, `test:`) does not trigger a release. Breaking changes use `feat!:` or `fix!:`.
+Conventional commits. `release-please` only bumps on `feat:` / `fix:`. The workspace ships four artifacts on the same version (Rust binary via Homebrew/crates.io, `lethe-memory` wheel on PyPI, `lethe` on npm), so a `feat:` triggers releases everywhere — use it sparingly. Everything else (`chore:`, `docs:`, `refactor:`, `test:`) does not trigger a release. Breaking changes use `feat!:` or `fix!:`.

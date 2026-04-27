@@ -1,4 +1,4 @@
-//! PyO3 bindings: import as `lethe_rust` after `maturin develop`.
+//! PyO3 bindings: import as `lethe_memory` after `maturin develop`.
 //!
 //! Surfaces the same shape as `lethe.MemoryStore` (Python) so you can
 //! A/B compare the two implementations. The GIL is released around
@@ -195,7 +195,7 @@ impl PyMemoryStore {
 
 /// Module entry — register the classes.
 #[pymodule]
-fn lethe_rust(m: &Bound<'_, PyModule>) -> PyResult<()> {
+fn lethe_memory(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", lethe_core::version())?;
     m.add_class::<PyRifConfig>()?;
     m.add_class::<PyHit>()?;
