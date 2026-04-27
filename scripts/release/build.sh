@@ -41,10 +41,10 @@
 # Then merge the release-please PR; CI matrix appends Linux/Windows
 # to the same directory.
 #
-# Files produced:
-#   * `lethe-macos-arm64`                       — `lethe` binary
-#   * `lethe-claude-code-macos-arm64`           — adapter binary
-#   * `lethe-macos-arm64.tar.gz`                — Homebrew tarball (binaries + README + LICENSE)
+# Files produced (one tarball per platform contains the binaries; we
+# don't drop loose `lethe-*` / `lethe-claude-code-*` files alongside
+# it because that would just duplicate what's inside the tarball):
+#   * `lethe-macos-arm64.tar.gz`                — binaries + README + LICENSE (Homebrew, manual download)
 #   * `lethe-macos-arm64.node`                  — napi-rs binding (--napi)
 #   * `lethe_memory-*-cp39-abi3-macosx_*.whl`   — maturin wheel  (--pypi)
 
@@ -89,25 +89,24 @@ mkdir -p "$DIST_DIR"
 
 rustup target add "$TARGET" >/dev/null 2>&1 || true
 
+# Build each binary, then pack them into the single tarball that
+# Homebrew + manual downloaders consume. We do *not* drop loose
+# binaries into `release_artifacts/` — they'd duplicate what's
+# already inside the tarball.
 for entry in "${RUST_BINS[@]}"; do
   crate="${entry%%:*}"
   bin="${entry##*:}"
   echo "Building $bin for $FNAME..."
   RUSTFLAGS="-C target-cpu=apple-m1" cargo build --release --target "$TARGET" -p "$crate"
-  src="$TARGET_DIR/$TARGET/release/$bin"
-  dst="$DIST_DIR/${bin}-${FNAME}"
-  cp "$src" "$dst"
-  chmod +x "$dst"
-  echo "  -> $dst"
 done
 
-# Tarball that matches what the Homebrew formula expects.
 stage_root="$(mktemp -d "${TMPDIR:-/tmp}/lethe-pkg.XXXXXX")"
 stage_dir="$stage_root/lethe-${FNAME}"
 mkdir -p "$stage_dir"
 for entry in "${RUST_BINS[@]}"; do
   bin="${entry##*:}"
-  cp "$DIST_DIR/${bin}-${FNAME}" "$stage_dir/$bin"
+  cp "$TARGET_DIR/$TARGET/release/$bin" "$stage_dir/$bin"
+  chmod +x "$stage_dir/$bin"
 done
 cp "$ROOT_DIR/README.md" "$ROOT_DIR/LICENSE" "$stage_dir/" 2>/dev/null || true
 (cd "$stage_root" && tar -czf "$DIST_DIR/lethe-${FNAME}.tar.gz" "lethe-${FNAME}")
