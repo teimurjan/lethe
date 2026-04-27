@@ -5,19 +5,27 @@ name: release
 # Triggered when release-please pushes a `vX.Y.Z` tag (or via manual
 # dispatch with the same tag). Runs three stages:
 #
-#   1. build       — matrix-build all 5 platform tarballs + napi .nodes
-#                    + maturin wheels on native runners. ort's prebuilt
+#   1. build       — matrix-build Linux + Windows tarballs + napi .nodes
+#                    + maturin wheels on native runners. macOS-arm64
+#                    is NOT in the matrix — the maintainer builds it
+#                    locally via `scripts/release/build.sh --tag vX.Y.Z`
+#                    and commits `release_artifacts/vX.Y.Z/lethe-macos-arm64*`
+#                    before merging the release-please PR. ort's prebuilt
 #                    ONNX Runtime links cleanly only on native, so we
-#                    don't cross-compile anything here.
-#   2. commit      — collect every artifact into `release_artifacts/<tag>/` on main
-#                    and push a `chore(release): vX.Y.Z artifacts [skip ci]`
-#                    commit. Git LFS handles the actual binary storage
-#                    so main's git history stays small.
-#   3. release     — create the GitHub Release with the same artifacts
-#                    attached. Publishing the release fans out to
+#                    don't cross-compile anything.
+#   2. commit      — append the matrix's Linux/Windows artifacts to
+#                    `release_artifacts/<tag>/` next to the macOS files
+#                    you committed locally. Pushes a
+#                    `chore(release): vX.Y.Z linux+windows artifacts
+#                    [skip ci]` commit. Git LFS handles the binary
+#                    storage so main's git history stays small.
+#   3. release     — upload everything in `release_artifacts/<tag>/`
+#                    (your local macOS plus CI's Linux/Windows) to the
+#                    GitHub Release release-please created as a draft,
+#                    then flip the draft flag. Only at that moment does
+#                    `release: published` fire, fanning out to
 #                    `release-rust.yml`, `release-pypi.yml`,
-#                    `release-npm.yml` which push to crates.io / PyPI /
-#                    npm / Homebrew.
+#                    `release-npm.yml`.
 
 on:
   push:
@@ -40,7 +48,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-14,         target: aarch64-apple-darwin,        friendly: macos-arm64,    rustflags: "-C target-cpu=apple-m1" }
           - { os: ubuntu-latest,    target: x86_64-unknown-linux-gnu,    friendly: linux-x64,      rustflags: "-C target-cpu=haswell" }
           - { os: ubuntu-24.04-arm, target: aarch64-unknown-linux-gnu,   friendly: linux-arm64,    rustflags: "-C target-cpu=cortex-a72" }
           - { os: windows-latest,   target: x86_64-pc-windows-msvc,      friendly: windows-x64,    rustflags: "-C target-cpu=haswell" }
@@ -140,7 +147,7 @@ jobs:
             echo "no artifact changes to commit"
             exit 0
           fi
-          git commit -m "chore(release): ${{ steps.tag.outputs.tag }} artifacts [skip ci]"
+          git commit -m "chore(release): ${{ steps.tag.outputs.tag }} linux+windows artifacts [skip ci]"
           git push origin main
 
   release:
@@ -148,11 +155,13 @@ jobs:
     needs: commit
     runs-on: ubuntu-latest
     steps:
+      # Pull the freshly-committed `release_artifacts/<tag>/` from
+      # main (which now contains both your local macOS files and
+      # the matrix's Linux/Windows files). LFS resolves the blobs.
       - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
         with:
-          path: dist
-          merge-multiple: true
+          ref: main
+          lfs: true
       - name: upload assets and publish release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -160,13 +169,14 @@ jobs:
         run: |
           set -euo pipefail
           # release-please created the release as a draft (see
-          # `"draft": true` in release-please-config.json). Upload the
-          # built artifacts, then flip the draft flag — only at that
-          # moment does GitHub fire `release: published`, which is the
-          # trigger the registry-push workflows wait for. This avoids
-          # the race where they'd otherwise run before any assets exist.
+          # `"draft": true` in release-please-config.json). Upload
+          # everything in `release_artifacts/<tag>/`, then flip the
+          # draft flag — only at that moment does GitHub fire
+          # `release: published`, which is the trigger the
+          # registry-push workflows wait for. This avoids the race
+          # where they'd otherwise run before any assets exist.
           if ! gh release view "$TAG" >/dev/null 2>&1; then
             gh release create "$TAG" --draft --generate-notes
           fi
-          gh release upload "$TAG" dist/* --clobber
+          gh release upload "$TAG" "release_artifacts/${TAG}"/* --clobber
           gh release edit   "$TAG" --draft=false

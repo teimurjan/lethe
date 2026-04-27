@@ -17,12 +17,20 @@
 # Release alongside the macOS tarball you upload.
 #
 # Usage:
-#   scripts/release/build.sh              # build the host platform
-#   scripts/release/build.sh --napi       # also build the napi .node
-#   scripts/release/build.sh --pypi       # also build the maturin wheel
+#   scripts/release/build.sh                 # loose build into release_artifacts/
+#   scripts/release/build.sh --tag vX.Y.Z    # build into release_artifacts/<tag>/
+#                                              (the path the release pipeline expects;
+#                                              git add + commit when done)
+#   scripts/release/build.sh --napi          # also build the napi .node
+#   scripts/release/build.sh --pypi          # also build the maturin wheel
 #
-# Output goes to `release_artifacts/` (loose, gitignored at this level
-# — only the CI-committed `release_artifacts/<tag>/` subdirs are tracked):
+# Without `--tag` the output is loose (gitignored, sanity-check only).
+# With `--tag vX.Y.Z` the script writes directly into the versioned
+# subdir that `release.yml`'s `commit` job will later append the
+# Linux/Windows artifacts to. The CI matrix does not rebuild macOS —
+# it trusts whatever you committed under `release_artifacts/<tag>/`.
+#
+# Files produced (suffixed with `--tag` going to subdir):
 #   * `lethe-macos-arm64`                       — `lethe` binary
 #   * `lethe-claude-code-macos-arm64`           — adapter binary
 #   * `lethe-macos-arm64.tar.gz`                — Homebrew tarball (binaries + README + LICENSE)
@@ -54,11 +62,13 @@ RUST_BINS=(
 
 BUILD_NAPI="false"
 BUILD_PYPI="false"
+TAG=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --napi) BUILD_NAPI="true"; shift ;;
     --pypi) BUILD_PYPI="true"; shift ;;
+    --tag)  TAG="$2"; shift 2 ;;
     --help|-h)
       sed -n '/^# Usage:/,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'
       exit 0 ;;
@@ -66,6 +76,12 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# When --tag is passed, write directly to the versioned subdir that
+# release.yml expects to find macOS artifacts in. Loose files are
+# gitignored; versioned subdir contents go through Git LFS.
+if [[ -n "$TAG" ]]; then
+  DIST_DIR="$DIST_DIR/$TAG"
+fi
 mkdir -p "$DIST_DIR"
 
 rustup target add "$TARGET" >/dev/null 2>&1 || true

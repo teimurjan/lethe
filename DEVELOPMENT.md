@@ -61,22 +61,26 @@ After editing `plugins/claude-code/` files (hooks, skills, manifest), run `/relo
 
 ## Building release artifacts
 
-Everything is built in CI on native runners — ort's prebuilt ONNX
-Runtime only links cleanly on the same platform it was compiled
-for, and cross-compiling C++ from macOS hits libstdc++ / MSVC-runtime
-ABI mismatches we don't want to fight. After the matrix builds, the
-artifacts are committed to `release_artifacts/<tag>/` on main (via Git LFS so the
-git history stays small) and attached to the GitHub Release.
+Hybrid: **macOS-arm64 builds locally on the maintainer's machine**,
+**Linux + Windows build in CI** on native runners. ort's prebuilt
+ONNX Runtime only links cleanly on the same platform it was compiled
+for; cross-compiling C++ from macOS hits libstdc++/MSVC-runtime ABI
+mismatches we don't want to fight, so each target builds natively.
+
+The local macOS files go in `release_artifacts/<tag>/`; CI appends
+its Linux/Windows files to the same versioned subdir. The whole
+folder is committed to main via Git LFS, then attached to the
+GitHub Release.
 
 ### Supported targets
 
-| Target | Friendly | Native runner |
+| Target | Friendly | Built where |
 |---|---|---|
-| `aarch64-apple-darwin` | `macos-arm64` | `macos-14` |
-| `x86_64-unknown-linux-gnu` | `linux-x64` | `ubuntu-latest` |
-| `aarch64-unknown-linux-gnu` | `linux-arm64` | `ubuntu-24.04-arm` |
-| `x86_64-pc-windows-msvc` | `windows-x64` | `windows-latest` |
-| `aarch64-pc-windows-msvc` | `windows-arm64` | `windows-11-arm` |
+| `aarch64-apple-darwin` | `macos-arm64` | local: `scripts/release/build.sh --tag vX.Y.Z` |
+| `x86_64-unknown-linux-gnu` | `linux-x64` | CI (`ubuntu-latest`) |
+| `aarch64-unknown-linux-gnu` | `linux-arm64` | CI (`ubuntu-24.04-arm`) |
+| `x86_64-pc-windows-msvc` | `windows-x64` | CI (`windows-latest`) |
+| `aarch64-pc-windows-msvc` | `windows-arm64` | CI (`windows-11-arm`) |
 
 **Intel Mac (`x86_64-apple-darwin`) is not supported.** Upstream `ort`
 dropped Intel macOS in rc.11 and the minimum macOS was bumped to 13.4
@@ -94,46 +98,53 @@ published is `release.yml` after every artifact is attached.
 
 1. Land `feat:` / `fix:` commits on `main`. `release-please.yml`
    opens a PR bumping the workspace version everywhere.
-2. Merge the release PR. `release-please.yml` runs again, tags the
-   merge commit (`vX.Y.Z`), and creates a **draft** GitHub Release.
-   No `release: published` event yet → registry-push workflows do
-   not fire.
-3. The tag push triggers `.github/workflows/release.yml`:
-   - **build** matrix on five native runners. Each produces a
-     tarball/zip, a napi `.node`, and a maturin wheel.
-   - **commit** downloads every matrix artifact, places them under
-     `release_artifacts/vX.Y.Z/`, and pushes a
-     `chore(release): vX.Y.Z artifacts [skip ci]` commit to main.
-     Git LFS handles the binary blobs (see `.gitattributes`).
-   - **release** uploads the same artifacts to the draft Release,
-     then runs `gh release edit --draft=false` — this is the moment
-     the `release: published` event fires.
-4. The published event finally fires `release-rust.yml`,
-   `release-pypi.yml`, and `release-npm.yml`. They download the
-   assets they need and push to crates.io / PyPI / npm / Homebrew.
+2. **Locally**, while the release-please PR is open (so you know the
+   target version):
+   ```bash
+   scripts/release/build.sh --tag vX.Y.Z --napi --pypi
+   git add release_artifacts/vX.Y.Z/
+   git commit -m "chore(release): vX.Y.Z macos-arm64 artifacts"
+   git push
+   ```
+   Bakes the macOS-arm64 binaries / `.node` / wheel into main under
+   `release_artifacts/vX.Y.Z/` via Git LFS.
+3. Merge the release PR. `release-please.yml` tags the merge commit
+   (`vX.Y.Z`) and creates a **draft** GitHub Release. No
+   `release: published` event yet → registry-push workflows do not
+   fire.
+4. The tag push triggers `.github/workflows/release.yml`:
+   - **build** matrix on four native runners (Linux x64/arm64,
+     Windows x64/arm64). No macOS — CI uses what you committed.
+   - **commit** appends the matrix artifacts to the same
+     `release_artifacts/vX.Y.Z/` and pushes
+     `chore(release): vX.Y.Z linux+windows artifacts [skip ci]`.
+   - **release** uploads everything in `release_artifacts/vX.Y.Z/`
+     (your local macOS plus CI's Linux/Windows) to the draft
+     Release, then runs `gh release edit --draft=false` — this is
+     the moment `release: published` fires.
+5. The published event fires `release-rust.yml`, `release-pypi.yml`,
+   and `release-npm.yml`, which download the relevant assets and push
+   to crates.io / PyPI / npm / Homebrew.
 
 If `release.yml` fails partway (e.g., a flaky linux-arm64 runner),
 the GitHub Release stays in draft state and registry-push workflows
 never run — you can re-trigger `release.yml` via `workflow_dispatch`
 without rolling back the version bump.
 
-### Local: the only build script you need
-
-There's a `scripts/release/build.sh` that produces the macOS-arm64
-tarball locally for sanity checks, but you do **not** need to run
-it for a real release — CI does the same thing on a runner. The
-script is useful when you want to test the binary without making a
-release first:
+### Local build script
 
 ```bash
-scripts/release/build.sh           # binaries + tarball for macos-arm64
-scripts/release/build.sh --napi    # plus the .node binding
-scripts/release/build.sh --pypi    # plus the maturin wheel
+scripts/release/build.sh                       # loose output (gitignored, sanity check)
+scripts/release/build.sh --tag vX.Y.Z          # → release_artifacts/vX.Y.Z/
+scripts/release/build.sh --tag vX.Y.Z --napi   # plus .node binding
+scripts/release/build.sh --tag vX.Y.Z --pypi   # plus maturin wheel
 ```
 
-Output lands directly in `release_artifacts/` (loose top-level files,
-gitignored). The same directory holds CI-committed builds in
-versioned subdirs `release_artifacts/vX.Y.Z/` (tracked via Git LFS).
+Without `--tag`, output lands directly in `release_artifacts/` as
+loose top-level files — gitignored, useful for sanity-checking the
+binary without making a release. With `--tag` the output lands in
+the versioned subdir the release pipeline expects to find macOS
+files in; commit it.
 
 ### Git LFS
 
