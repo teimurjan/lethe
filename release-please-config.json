@@ -17,6 +17,21 @@
           "jsonpath": "$.workspace.package.version"
         },
         {
+          "type": "toml",
+          "path": "crates/lethe-cli/Cargo.toml",
+          "jsonpath": "$.dependencies.lethe-core.version"
+        },
+        {
+          "type": "toml",
+          "path": "crates/lethe-cli/Cargo.toml",
+          "jsonpath": "$.dependencies.lethe-tui.version"
+        },
+        {
+          "type": "toml",
+          "path": "crates/lethe-tui/Cargo.toml",
+          "jsonpath": "$.dependencies.lethe-core.version"
+        },
+        {
           "type": "json",
           "path": ".claude-plugin/marketplace.json",
           "jsonpath": "$.metadata.version"
