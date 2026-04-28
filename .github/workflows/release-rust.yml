@@ -49,7 +49,9 @@ jobs:
           publish_if_new() {
             local crate=$1
             local current
-            current=$(curl -fsSL "https://crates.io/api/v1/crates/${crate}" \
+            # crates.io rejects requests without a User-Agent (HTTP 403).
+            current=$(curl -fsSL -A "lethe-release-bot (github.com/teimurjan/lethe)" \
+                        "https://crates.io/api/v1/crates/${crate}" \
                       | python3 -c 'import sys,json; print(json.load(sys.stdin).get("crate",{}).get("max_version",""))' \
                       2>/dev/null || echo "")
             if [ "$current" = "$ver" ]; then
