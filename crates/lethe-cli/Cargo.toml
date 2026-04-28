@@ -13,8 +13,8 @@ name = "lethe"
 path = "src/main.rs"
 
 [dependencies]
-lethe-core = { path = "../lethe-core", version = "0.7.1" }
-lethe-tui = { path = "../lethe-tui", version = "0.7.1" }
+lethe-core = { path = "../lethe-core", version = "0.8.0" }
+lethe-tui = { path = "../lethe-tui", version = "0.8.0" }
 clap.workspace = true
 serde.workspace = true
 serde_json.workspace = true
