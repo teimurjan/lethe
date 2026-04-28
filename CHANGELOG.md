@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.7.1](https://github.com/teimurjan/lethe/compare/lethe-v0.7.0...lethe-v0.7.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **release:** Bump inter-crate version pins to 0.7.0 ([c110aa1](https://github.com/teimurjan/lethe/commit/c110aa1249bb5e848a5febd8df5441d5caeaa8eb))
+* **release:** Drop dangling x64 refs in homebrew formula (arm64-only) ([33eaa90](https://github.com/teimurjan/lethe/commit/33eaa904fc5e399547a2384ce2a1b24dafee9d48))
+* **release:** Drop prepublishOnly hook so manual npm publish works ([7f43025](https://github.com/teimurjan/lethe/commit/7f4302531bd8bf990d065514af1b792529dbeecf))
+* **release:** Install libduckdb.dylib next to lethe binaries ([44f70f7](https://github.com/teimurjan/lethe/commit/44f70f73b7e333221f1291eaf9a31e44bec3fa10))
+* **release:** Make cargo publish idempotent ([0925ce1](https://github.com/teimurjan/lethe/commit/0925ce1eea6ac60113dce74900dd07566a1e4a59))
+* **release:** Make npm publish idempotent + ship meta package ([163c61c](https://github.com/teimurjan/lethe/commit/163c61c0bd8ec79718612e7594110f3d36d94f53))
+* **release:** Match component-prefixed tag in release.yml trigger ([35ec1b7](https://github.com/teimurjan/lethe/commit/35ec1b76c54d46df22c63f251d107c176923123b))
+* **release:** Scope npm under [@lethe-memory](https://github.com/lethe-memory), unbreak cargo publish ([ee21d70](https://github.com/teimurjan/lethe/commit/ee21d70d096fb4a4108042837120fd4549883916))
+* **release:** Set User-Agent on crates.io API check (was 403'd) ([c874e8e](https://github.com/teimurjan/lethe/commit/c874e8e1789b8fb610fdf684972c219227131034))
+
 ## [0.7.0](https://github.com/teimurjan/lethe/compare/lethe-v0.6.0...lethe-v0.7.0) (2026-04-28)
 
 
