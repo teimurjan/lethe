@@ -129,6 +129,15 @@ jobs:
           # it'd otherwise stop at `check` and only warn.
           args: --release --out wheels --strip --auditwheel=repair
           manylinux: auto
+          # On Linux maturin spawns a manylinux docker container.
+          # maturin-action filters env vars through a prefix allowlist
+          # (CARGO_/CC/CFLAGS/MATURIN_/PYO3_/RUST/...) and silently
+          # drops anything else — so the job-level `DUCKDB_DOWNLOAD_LIB`
+          # never reaches cargo inside the container. Pass it through
+          # explicitly via `-e` so libduckdb-sys uses the download path
+          # instead of falling back to system libduckdb (which doesn't
+          # exist in the manylinux image, hence `cannot find -lduckdb`).
+          docker-options: -e DUCKDB_DOWNLOAD_LIB=1
       - name: collect artifacts
         shell: bash
         run: |
