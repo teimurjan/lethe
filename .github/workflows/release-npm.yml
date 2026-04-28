@@ -134,10 +134,46 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           set -euo pipefail
-          # `napi prepublish` runs `npm publish` inside each
-          # `npm/<triple>/` directory, then rewrites the root
-          # `package.json` to add `optionalDependencies` pointing at
-          # each per-platform package. The final `npm publish` ships
-          # the meta package.
-          npx napi prepublish -t npm --skip-gh-release
-          npm publish --access public
+
+          ROOT_NAME=$(jq -r .name package.json)
+          VERSION=$(jq -r .version package.json)
+
+          # Idempotent per-platform publish. `napi prepublish` would
+          # also do this, but it errors out on republish — and a
+          # partial earlier run can leave per-platforms already on
+          # npm, blocking the meta package from ever shipping.
+          for dir in npm/*/; do
+            [ -d "$dir" ] || continue
+            pkg=$(jq -r .name "${dir}package.json")
+            if curl -fsSL "https://registry.npmjs.org/${pkg}/${VERSION}" >/dev/null 2>&1; then
+              echo ">> ${pkg}@${VERSION} already on npm, skipping"
+              continue
+            fi
+            (cd "$dir" && npm publish --access public)
+          done
+
+          # Wire each per-platform package into the meta as an
+          # optionalDependency. npm picks the right one at install
+          # based on the consumer's `os`/`cpu`/libc.
+          tmp=$(mktemp)
+          jq --arg root "$ROOT_NAME" --arg ver "$VERSION" '
+            .optionalDependencies = (
+              [
+                "darwin-arm64",
+                "linux-x64-gnu",
+                "linux-arm64-gnu",
+                "win32-x64-msvc",
+                "win32-arm64-msvc"
+              ]
+              | map({(($root + "-" + .)): $ver})
+              | add
+            )
+          ' package.json > "$tmp"
+          mv "$tmp" package.json
+
+          # Ship the meta — idempotent against re-runs.
+          if curl -fsSL "https://registry.npmjs.org/${ROOT_NAME}/${VERSION}" >/dev/null 2>&1; then
+            echo ">> ${ROOT_NAME}@${VERSION} already on npm, skipping"
+          else
+            npm publish --access public
+          fi
