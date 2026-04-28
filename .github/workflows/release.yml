@@ -122,7 +122,12 @@ jobs:
         with:
           working-directory: crates/lethe-py
           target: ${{ matrix.target }}
-          args: --release --out wheels --strip
+          # `--auditwheel=repair` makes maturin run delocate (macOS) /
+          # delvewheel (Windows) / auditwheel (Linux) so libduckdb is
+          # bundled into the wheel and the rpath is patched. On
+          # manylinux Linux this is the default but on macOS/Windows
+          # it'd otherwise stop at `check` and only warn.
+          args: --release --out wheels --strip --auditwheel=repair
           manylinux: auto
       - name: collect artifacts
         shell: bash

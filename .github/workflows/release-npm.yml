@@ -1,12 +1,22 @@
 name: release-npm
 
-# Triggered when release-please publishes a GitHub Release.
-# Picks up napi-rs `.node` files uploaded to the release as assets and
-# publishes the `lethe` npm package (per-platform sub-packages plus
-# the meta package).
+# Triggered when release.yml flips a `lethe-vX.Y.Z` GitHub Release
+# from draft to published. The release at that point holds the
+# per-platform binary tarballs (with libduckdb bundled inside) and
+# the `.node` files. We:
 #
-# `.node` files are built locally via `scripts/release/build.sh --napi`
-# and uploaded to the GitHub Release before this runs.
+#   1. Download the `.node` and tarball/zip for each napi triple.
+#   2. Extract libduckdb from each tarball next to its matching
+#      `.node` inside `npm/<triple>/`.
+#   3. Patch each per-platform `package.json` so its `files` field
+#      lists libduckdb alongside the `.node`.
+#   4. Run `napi prepublish` (auto-publishes per-platform packages).
+#   5. Publish the root meta package with `optionalDependencies`
+#      pointing at each per-platform package.
+#
+# `.node` files at link time have rpath `@loader_path` / `$ORIGIN`
+# (set by `crates/lethe-node/build.rs`) so the runtime loader
+# resolves libduckdb from the same dir as the `.node`.
 
 on:
   release:
@@ -33,19 +43,90 @@ jobs:
         with:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
-      - name: download .node assets from release
+      - run: npm install
+
+      - name: stage per-platform npm dirs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
-            --pattern "lethe-*.node" --dir . || true
-          ls -la *.node || echo "no .node files attached to the release; skipping npm publish"
-      - run: npm install
-      - run: npx napi prepublish -t npm --skip-gh-release
+
+          # Materialise `npm/<napi-triple>/package.json` for each
+          # triple in `napi.triples.additional`.
+          npx napi create-npm-dir -t .
+
+          # Mapping: napi platformArchABI ↔ our friendly tarball stem ↔ libduckdb filename.
+          # Friendly stem matches `release.yml`'s matrix `friendly`
+          # field plus the macOS local build's `FNAME=macos-arm64`.
+          declare -A FRIENDLY=(
+            [linux-x64-gnu]=linux-x64
+            [linux-arm64-gnu]=linux-arm64
+            [darwin-x64]=macos-x64
+            [darwin-arm64]=macos-arm64
+            [win32-x64-msvc]=windows-x64
+            [win32-arm64-msvc]=windows-arm64
+          )
+          declare -A LIBNAME=(
+            [linux-x64-gnu]=libduckdb.so
+            [linux-arm64-gnu]=libduckdb.so
+            [darwin-x64]=libduckdb.dylib
+            [darwin-arm64]=libduckdb.dylib
+            [win32-x64-msvc]=duckdb.dll
+            [win32-arm64-msvc]=duckdb.dll
+          )
+
+          mkdir -p _staging
+          for triple in "${!FRIENDLY[@]}"; do
+            dir="npm/${triple}"
+            [ -d "$dir" ] || continue
+            f="${FRIENDLY[$triple]}"
+            lib="${LIBNAME[$triple]}"
+
+            # Pull `.node` directly into the per-platform dir.
+            if ! gh release download "$TAG" \
+                  --repo "$GITHUB_REPOSITORY" \
+                  --pattern "lethe-${f}.node" \
+                  --dir "$dir" 2>/dev/null; then
+              echo "no .node for $f; skipping $triple"
+              rm -rf "$dir"
+              continue
+            fi
+            mv "$dir/lethe-${f}.node" "$dir/lethe.${triple}.node"
+
+            # Pull the tarball/zip into staging and extract libduckdb.
+            rm -rf "_staging/${f}"
+            mkdir -p "_staging/${f}"
+            if [ "$triple" = win32-x64-msvc ] || [ "$triple" = win32-arm64-msvc ]; then
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+                --pattern "lethe-${f}.zip" --dir "_staging/${f}"
+              (cd "_staging/${f}" && unzip -q "lethe-${f}.zip")
+            else
+              gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+                --pattern "lethe-${f}.tar.gz" --dir "_staging/${f}"
+              tar -xzf "_staging/${f}/lethe-${f}.tar.gz" -C "_staging/${f}"
+            fi
+            cp "_staging/${f}/lethe-${f}/${lib}" "$dir/${lib}"
+
+            # Patch `files` to ship libduckdb alongside the `.node`.
+            tmp="$(mktemp)"
+            jq --arg lib "$lib" '.files += [$lib]' "$dir/package.json" > "$tmp"
+            mv "$tmp" "$dir/package.json"
+
+            echo "staged $triple: $(ls "$dir" | tr '\n' ' ')"
+          done
+          rm -rf _staging
+
+      - name: publish per-platform packages and root
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-      - run: npm publish
-        env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          # `napi prepublish` runs `npm publish` inside each
+          # `npm/<triple>/` directory, then rewrites the root
+          # `package.json` to add `optionalDependencies` pointing at
+          # each per-platform package. The final `npm publish` ships
+          # the meta package.
+          npx napi prepublish -t npm --skip-gh-release
+          npm publish --access public

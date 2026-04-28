@@ -144,7 +144,10 @@ if [[ "$BUILD_PYPI" == "true" ]]; then
     echo "  error: maturin not installed (uv pip install maturin)"
     exit 1
   fi
-  (cd "$ROOT_DIR/crates/lethe-py" && "$maturin" build --release --out "$DIST_DIR" --strip)
+  # `--auditwheel=repair` runs delocate on macOS so libduckdb is
+  # bundled into the wheel; without it we'd ship a wheel that links
+  # against an absolute path on the build machine.
+  (cd "$ROOT_DIR/crates/lethe-py" && "$maturin" build --release --out "$DIST_DIR" --strip --auditwheel=repair)
 fi
 
 echo
