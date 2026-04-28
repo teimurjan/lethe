@@ -38,15 +38,34 @@ jobs:
           DUCKDB_DOWNLOAD_LIB: "1"
         run: |
           set -euo pipefail
+
+          # Workspace version drives all crate versions (see Cargo.toml
+          # `[workspace.package] version`).
+          ver=$(grep -m1 -E '^version *= *"' Cargo.toml | sed -E 's/.*"([^"]+)".*/\1/')
+
+          # crates.io is append-only; a partial run that published some
+          # crates before failing leaves them unrepublishable. Treat
+          # "already at this version" as success per crate.
+          publish_if_new() {
+            local crate=$1
+            local current
+            current=$(curl -fsSL "https://crates.io/api/v1/crates/${crate}" \
+                      | python3 -c 'import sys,json; print(json.load(sys.stdin).get("crate",{}).get("max_version",""))' \
+                      2>/dev/null || echo "")
+            if [ "$current" = "$ver" ]; then
+              echo ">> ${crate}@${ver} already on crates.io, skipping"
+              return 0
+            fi
+            cargo publish -p "$crate" --token "$CARGO_REGISTRY_TOKEN"
+            sleep 30
+          }
+
           # Order matters: dependents wait for the registry index to
           # refresh after each publish.
-          cargo publish -p lethe-core --token "$CARGO_REGISTRY_TOKEN"
-          sleep 30
-          cargo publish -p lethe-tui  --token "$CARGO_REGISTRY_TOKEN"
-          sleep 30
-          cargo publish -p lethe-cli  --token "$CARGO_REGISTRY_TOKEN"
-          sleep 30
-          cargo publish -p lethe-claude-code --token "$CARGO_REGISTRY_TOKEN"
+          publish_if_new lethe-core
+          publish_if_new lethe-tui
+          publish_if_new lethe-cli
+          publish_if_new lethe-claude-code
 
   homebrew:
     name: update homebrew tap
