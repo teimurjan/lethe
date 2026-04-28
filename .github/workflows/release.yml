@@ -70,7 +70,24 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ${{ matrix.target }}
+          # Salt bumped after libduckdb-sys cache pollution: the
+          # action's `cleanTargetDir` recursively prunes anything
+          # under `target/` whose dirname isn't `build`/`.fingerprint`/
+          # `deps`, which wipes `target/duckdb-download/<triple>/<ver>/`
+          # contents while leaving cargo's libduckdb-sys build
+          # fingerprint intact. On restore, build.rs short-circuits
+          # (no re-extract) and link.exe fails to find `duckdb.lib`.
+          key: ${{ matrix.target }}-libduckdb-v2
+      - name: keep libduckdb-sys download out of rust-cache cleanup
+        shell: bash
+        run: |
+          # `CACHEDIR.TAG` makes Swatinem/rust-cache skip this dir
+          # during its pre-save cleanup, preserving the extracted
+          # libduckdb files (.lib/.dll/.dylib/.so + headers) verbatim
+          # in the cache. See cleanup.ts: dirs containing CACHEDIR.TAG
+          # are not treated as cargo profile dirs.
+          mkdir -p target/duckdb-download
+          printf 'Signature: 8a477f597d28d172\n' > target/duckdb-download/CACHEDIR.TAG
       - name: build cli + claude-code
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
@@ -150,6 +167,12 @@ jobs:
         with:
           name: lethe-${{ matrix.friendly }}
           path: out/
+          # Matrix artifacts are intermediate hand-offs to the
+          # `commit`/`release` jobs in this same workflow run — they
+          # have no value past the run finishing. Default retention
+          # is 90 days; trim to 7 to keep total artifact storage in
+          # check across releases.
+          retention-days: 7
 
   commit:
     name: commit artifacts to repo
