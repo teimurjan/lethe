@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-__version__ = "0.7.0"  # x-release-please-version
+__version__ = "0.8.0"  # x-release-please-version
 
 from lethe.memory_store import MemoryStore
 from lethe.rif import RIFConfig
