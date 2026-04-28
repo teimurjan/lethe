@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.7.0](https://github.com/teimurjan/lethe/compare/lethe-v0.6.0...lethe-v0.7.0) (2026-04-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* rust port — single `lethe` binary, bindings, polyglot release ([#19](https://github.com/teimurjan/lethe/issues/19))
+
+### Features
+
+* Rust port — single `lethe` binary, bindings, polyglot release ([#19](https://github.com/teimurjan/lethe/issues/19)) ([8f0d1e6](https://github.com/teimurjan/lethe/commit/8f0d1e6af8cd8690cbd0b888cba43a4f72e45c90))
+
+
+### Bug Fixes
+
+* **release:** Switch root to release-type simple with toml updater ([a3e607c](https://github.com/teimurjan/lethe/commit/a3e607c6d1f5e1f9deb47f9e54093c6dce0f605a))
+
 ## [0.6.0](https://github.com/teimurjan/lethe/compare/lethe-memory-v0.5.1...lethe-memory-v0.6.0) (2026-04-24)
 
 
