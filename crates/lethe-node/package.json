@@ -1,6 +1,6 @@
 {
   "name": "lethe",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Node bindings to the lethe memory store (Rust core via napi-rs).",
   "main": "index.js",
   "types": "index.d.ts",

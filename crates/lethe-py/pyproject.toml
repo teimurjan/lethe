@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "lethe-memory"
-version = "0.7.0" # x-release-please-version
+version = "0.7.1" # x-release-please-version
 description = "Persistent memory store for LLM agents — Python bindings to the Rust lethe core."
 readme = "README.md"
 requires-python = ">=3.9"

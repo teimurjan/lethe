@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1](https://github.com/teimurjan/lethe/compare/lethe-v0.7.0...lethe-v0.7.1) (2026-04-28)
+
+
+### Bug Fixes
+
+* **release:** Bump inter-crate version pins to 0.7.0 ([c110aa1](https://github.com/teimurjan/lethe/commit/c110aa1249bb5e848a5febd8df5441d5caeaa8eb))
+* **release:** Match component-prefixed tag in release.yml trigger ([35ec1b7](https://github.com/teimurjan/lethe/commit/35ec1b76c54d46df22c63f251d107c176923123b))
+
 ## [0.7.0](https://github.com/teimurjan/lethe/compare/lethe-v0.6.0...lethe-v0.7.0) (2026-04-28)
 
 
