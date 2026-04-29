@@ -4,10 +4,35 @@
 
 use std::path::PathBuf;
 use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
 
+use lethe_core::db::MemoryDb;
 use lethe_core::registry::{self, ProjectEntry};
 
-use crate::search_worker::{self, SearchOutput, SearchRequest};
+use crate::search_worker::{self, Phase, SearchOutput, SearchRequest};
+
+#[derive(Debug, Clone, Default)]
+pub struct Stats {
+    pub total: usize,
+    /// `(slug, count)` sorted descending by count.
+    pub by_project: Vec<(String, usize)>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToastKind {
+    Info,
+    Error,
+}
+
+#[derive(Debug, Clone)]
+pub struct Toast {
+    pub msg: String,
+    pub kind: ToastKind,
+    pub expires: Instant,
+}
+
+const TOAST_TTL: Duration = Duration::from_millis(2000);
 
 /// Which pane currently owns focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -55,12 +80,26 @@ pub struct App {
     pub search_input: String,
     pub last_query: String,
     pub searching: bool,
+    pub search_phase: Option<Phase>,
 
     pub results: Vec<ResultRow>,
     pub result_selection: usize,
-    pub status: String,
 
     pub detail: Option<String>,
+
+    /// Transient bottom-right notification (copy success, errors).
+    pub toast: Option<Toast>,
+
+    /// Set when the worker finishes a search; consumed by the event
+    /// loop to force `terminal.clear()`. Cold-load downloads may emit
+    /// stray bytes (`hf-hub` / `ort` warnings) that the ratatui buffer
+    /// diffing won't know to overwrite — a one-shot full redraw fixes
+    /// the corrupted screen.
+    pub needs_redraw: bool,
+
+    /// Per-project memory counts. `None` until the bg thread reports.
+    pub stats: Option<Stats>,
+    pub stats_rx: mpsc::Receiver<Stats>,
 
     /// Channels owned by the background search worker.
     pub search_tx: mpsc::Sender<SearchRequest>,
@@ -71,6 +110,7 @@ impl App {
     pub fn new() -> Self {
         let projects = registry::load();
         let (search_tx, search_rx) = search_worker::spawn();
+        let stats_rx = spawn_stats(projects.clone());
         Self {
             focus: Focus::Search,
             scope: Scope::AllProjects,
@@ -79,10 +119,14 @@ impl App {
             search_input: String::new(),
             last_query: String::new(),
             searching: false,
+            search_phase: None,
             results: Vec::new(),
             result_selection: 0,
-            status: "type a query and press enter".to_owned(),
             detail: None,
+            toast: None,
+            needs_redraw: false,
+            stats: None,
+            stats_rx,
             search_tx,
             search_rx,
         }
@@ -108,11 +152,26 @@ impl App {
             self.scope = Scope::AllProjects;
             self.results.clear();
             self.detail = None;
-            "scope: all projects".clone_into(&mut self.status);
             return;
         }
         // Already at the top; refocus the search input.
         self.focus = Focus::Search;
+    }
+
+    pub fn show_toast(&mut self, msg: impl Into<String>, kind: ToastKind) {
+        self.toast = Some(Toast {
+            msg: msg.into(),
+            kind,
+            expires: Instant::now() + TOAST_TTL,
+        });
+    }
+
+    pub fn poll_toast(&mut self) {
+        if let Some(t) = &self.toast {
+            if Instant::now() >= t.expires {
+                self.toast = None;
+            }
+        }
     }
 
     pub fn move_cursor(&mut self, delta: isize) {
@@ -143,7 +202,6 @@ impl App {
             self.scope = Scope::Single(p.clone());
             self.results.clear();
             self.detail = None;
-            self.status = format!("scope: {}", p.slug);
             self.focus = Focus::Search;
         }
     }
@@ -155,7 +213,7 @@ impl App {
         }
         self.last_query.clone_from(&query);
         self.searching = true;
-        self.status = format!("searching for {query:?}…");
+        self.search_phase = None;
         self.results.clear();
         self.detail = None;
         let _ = self.search_tx.send(SearchRequest {
@@ -165,25 +223,55 @@ impl App {
         });
     }
 
+    pub fn poll_stats(&mut self) {
+        if self.stats.is_some() {
+            return;
+        }
+        if let Ok(s) = self.stats_rx.try_recv() {
+            self.stats = Some(s);
+        }
+    }
+
+    pub fn copy_selected_to_clipboard(&mut self) {
+        let Some(row) = self.results.get(self.result_selection) else {
+            return;
+        };
+        let content = row.content.clone();
+        let len = content.len();
+        match arboard::Clipboard::new().and_then(|mut cb| cb.set_text(content)) {
+            Ok(()) => self.show_toast(format!("✓ copied {len} chars"), ToastKind::Info),
+            Err(e) => self.show_toast(format!("clipboard error: {e}"), ToastKind::Error),
+        }
+    }
+
     pub fn poll_search_results(&mut self) {
         while let Ok(output) = self.search_rx.try_recv() {
-            self.searching = false;
             match output {
+                SearchOutput::Phase(p) => {
+                    self.search_phase = Some(p);
+                }
                 SearchOutput::Hits(rows) => {
+                    self.searching = false;
+                    self.search_phase = None;
+                    // Cold-load downloads may have leaked bytes onto
+                    // the alt-screen; force a full redraw on the next
+                    // tick to reset the buffer.
+                    self.needs_redraw = true;
                     let n = rows.len();
                     self.results = rows;
                     self.result_selection = 0;
                     if n == 0 {
-                        "no results".clone_into(&mut self.status);
                         self.detail = None;
                     } else {
-                        self.status = format!("results ({n}) — ↑/↓ to browse");
                         self.focus = Focus::Results;
                         self.refresh_detail_from_highlight();
                     }
                 }
                 SearchOutput::Error(e) => {
-                    self.status = format!("error: {e}");
+                    self.searching = false;
+                    self.search_phase = None;
+                    self.needs_redraw = true;
+                    self.show_toast(format!("error: {e}"), ToastKind::Error);
                 }
             }
         }
@@ -194,4 +282,30 @@ impl App {
             self.detail = Some(row.content.clone());
         }
     }
+}
+
+/// Compute per-project memory counts off-thread. Opens each project's
+/// DuckDB file directly (no embeddings, no encoders) so first paint is
+/// fast even with many registered projects.
+fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut by_project: Vec<(String, usize)> = Vec::with_capacity(projects.len());
+        let mut total = 0usize;
+        for p in projects {
+            let db_path = p.root.join(".lethe").join("index").join("lethe.duckdb");
+            if !db_path.exists() {
+                continue;
+            }
+            let count = MemoryDb::open(&db_path)
+                .and_then(|db| db.count())
+                .map(|c| c.max(0) as usize)
+                .unwrap_or(0);
+            total += count;
+            by_project.push((p.slug, count));
+        }
+        by_project.sort_by(|a, b| b.1.cmp(&a.1));
+        let _ = tx.send(Stats { total, by_project });
+    });
+    rx
 }
