@@ -1,10 +1,17 @@
 {
   "name": "lethe",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "Persistent memory across Claude Code sessions. Markdown-first storage, hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, optional Haiku enrichment.",
-  "author": { "name": "Teimur Gasanov" },
+  "author": {
+    "name": "Teimur Gasanov"
+  },
   "homepage": "https://github.com/teimurjan/lethe",
   "repository": "https://github.com/teimurjan/lethe",
   "license": "MIT",
-  "keywords": ["memory", "rif", "hybrid-retrieval", "markdown"]
+  "keywords": [
+    "memory",
+    "rif",
+    "hybrid-retrieval",
+    "markdown"
+  ]
 }

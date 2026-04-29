@@ -7,7 +7,7 @@ build-backend = "hatchling.build"
 # claim that name on PyPI. The legacy library is no longer published;
 # this distribution name is only meaningful inside the dev venv.
 name = "lethe-memory-legacy"
-version = "0.9.0" # x-release-please-version
+version = "0.10.0" # x-release-please-version
 description = "Legacy Python implementation of lethe (kept for the research-journey trail)."
 readme = "../README.md"
 license = "MIT"

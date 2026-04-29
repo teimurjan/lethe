@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.10.0](https://github.com/teimurjan/lethe/compare/lethe-v0.9.0...lethe-v0.10.0) (2026-04-29)
+
+
+### Features
+
+* **codex:** Codex CLI plugin + plugin manifest fix ([#28](https://github.com/teimurjan/lethe/issues/28)) ([0354c5b](https://github.com/teimurjan/lethe/commit/0354c5b5d2ec5a813079155629145425336795b5))
+
 ## [0.9.0](https://github.com/teimurjan/lethe/compare/lethe-v0.8.0...lethe-v0.9.0) (2026-04-28)
 
 
