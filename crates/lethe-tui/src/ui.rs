@@ -4,20 +4,20 @@
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Wrap};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::app::{App, Focus, Scope};
+use crate::app::{App, Focus, Scope, Stats, ToastKind};
 
-const FOOTER: &str = "↑/↓ nav · ⏎ search/open · esc back · tab focus · ^q quit";
+const FOOTER: &str = "↑/↓ nav · ⏎ search/open · esc back · tab focus · y copy · ^q quit";
+const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let area = frame.area();
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1), // header
-            Constraint::Min(3),    // body
+            Constraint::Min(3), // body
             if app.detail.is_some() {
                 Constraint::Length(8)
             } else {
@@ -27,24 +27,16 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
         ])
         .split(area);
 
-    draw_header(frame, chunks[0], app);
-    draw_body(frame, chunks[1], app);
+    draw_body(frame, chunks[0], app);
     if app.detail.is_some() {
-        draw_detail(frame, chunks[2], app);
+        draw_detail(frame, chunks[1], app);
     }
-    draw_footer(frame, chunks[3]);
-}
+    draw_footer(frame, chunks[2]);
 
-fn draw_header(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let scope = app.scope.label();
-    let header = Line::from(vec![
-        Span::styled("lethe", Style::default().add_modifier(Modifier::BOLD)),
-        Span::raw("  ›  "),
-        Span::styled(scope, Style::default().fg(Color::Cyan)),
-        Span::raw("    "),
-        Span::styled(&app.status, Style::default().fg(Color::DarkGray)),
-    ]);
-    frame.render_widget(Paragraph::new(header), area);
+    // Toast last so it floats above everything else.
+    if app.toast.is_some() {
+        draw_toast(frame, area, app);
+    }
 }
 
 fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
@@ -52,7 +44,12 @@ fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(28), Constraint::Min(20)])
         .split(area);
-    draw_projects(frame, chunks[0], app);
+    let left = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(5), Constraint::Length(8)])
+        .split(chunks[0]);
+    draw_projects(frame, left[0], app);
+    draw_stats(frame, left[1], app);
     draw_results_pane(frame, chunks[1], app);
 }
 
@@ -123,9 +120,46 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let active = matches!(app.focus, Focus::Results);
     let block = pane_block(&title, active);
 
+    if app.searching {
+        let spin = spinner_frame();
+        let phase_label = app
+            .search_phase
+            .map_or("preparing", crate::search_worker::Phase::label);
+        let mut spans = vec![
+            Span::styled(
+                spin,
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw("  "),
+            Span::styled(phase_label, Style::default().fg(Color::White)),
+        ];
+        if matches!(
+            app.search_phase,
+            Some(crate::search_worker::Phase::Searching) | None
+        ) && !app.last_query.is_empty()
+        {
+            spans.push(Span::raw(" for "));
+            spans.push(Span::styled(
+                format!("\"{}\"", app.last_query),
+                Style::default().fg(Color::White),
+            ));
+        }
+        spans.push(Span::raw("…"));
+        let para = Paragraph::new(Line::from(spans)).block(block);
+        frame.render_widget(para, area);
+        return;
+    }
+
     if app.results.is_empty() {
+        let msg = if app.last_query.is_empty() {
+            "(type a query and press enter)"
+        } else {
+            "no results"
+        };
         let para = Paragraph::new(Line::from(Span::styled(
-            "(type a query and press enter)",
+            msg,
             Style::default().fg(Color::DarkGray),
         )))
         .block(block);
@@ -162,14 +196,129 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
+fn draw_stats(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let block = pane_block("Stats", false);
+    let lines = match &app.stats {
+        None => vec![Line::from(Span::styled(
+            "computing…",
+            Style::default().fg(Color::DarkGray),
+        ))],
+        Some(s) => stats_lines(s, area.width),
+    };
+    let para = Paragraph::new(lines).block(block);
+    frame.render_widget(para, area);
+}
+
+fn stats_lines(s: &Stats, width: u16) -> Vec<Line<'static>> {
+    let mut out: Vec<Line<'static>> = Vec::with_capacity(6);
+    out.push(Line::from(vec![
+        Span::styled(
+            format_count(s.total),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" memories"),
+    ]));
+    out.push(Line::from(Span::styled(
+        format!("across {} projects", s.by_project.len()),
+        Style::default().fg(Color::DarkGray),
+    )));
+    out.push(Line::from(""));
+
+    // Total interior width minus borders is `width - 2`. Reserve room
+    // for slug (12) + space (1) + count (5) + space (1) = 19 cols, the
+    // remaining is bar width.
+    let interior = width.saturating_sub(2) as usize;
+    let max = s.by_project.first().map_or(0, |(_, c)| *c).max(1);
+    let bar_max = interior.saturating_sub(19).max(4);
+    for (slug, count) in s.by_project.iter().take(3) {
+        let label = truncate(slug, 12);
+        let bar_len = (*count * bar_max) / max;
+        let bar = "█".repeat(bar_len);
+        out.push(Line::from(vec![
+            Span::styled(format!("{label:<12}"), Style::default().fg(Color::White)),
+            Span::raw(" "),
+            Span::styled(bar, Style::default().fg(Color::Cyan)),
+            Span::raw(" "),
+            Span::styled(format!("{count:>4}"), Style::default().fg(Color::DarkGray)),
+        ]));
+    }
+    out
+}
+
+fn format_count(n: usize) -> String {
+    let s = n.to_string();
+    let bytes = s.as_bytes();
+    let mut out = String::with_capacity(s.len() + s.len() / 3);
+    for (i, b) in bytes.iter().enumerate() {
+        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
+            out.push(',');
+        }
+        out.push(*b as char);
+    }
+    out
+}
+
+fn truncate(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        s.to_owned()
+    } else {
+        s.chars().take(n.saturating_sub(1)).chain(['…']).collect()
+    }
+}
+
 fn draw_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let block = Block::default()
-        .borders(Borders::ALL)
-        .title("Detail (Esc to close)")
-        .style(Style::default().fg(Color::DarkGray));
+    let block = pane_block("Detail (Esc to close)", false);
     let body = app.detail.clone().unwrap_or_default();
     let para = Paragraph::new(body).block(block).wrap(Wrap { trim: false });
     frame.render_widget(para, area);
+}
+
+fn draw_toast(frame: &mut Frame<'_>, full: Rect, app: &App) {
+    let Some(toast) = &app.toast else { return };
+    let msg = toast.msg.clone();
+    let (fg, border) = match toast.kind {
+        ToastKind::Info => (Color::Black, Color::Green),
+        ToastKind::Error => (Color::White, Color::Red),
+    };
+
+    // Bottom-right placement with a small margin. Width = msg + padding,
+    // capped to the available space.
+    let inner_w = (msg.chars().count() as u16).saturating_add(2);
+    let w = inner_w.saturating_add(2).min(full.width.saturating_sub(2));
+    let h = 3u16;
+    if full.width <= w + 2 || full.height <= h + 2 {
+        return;
+    }
+    let area = Rect {
+        x: full.x + full.width - w - 2,
+        y: full.y + full.height - h - 2,
+        width: w,
+        height: h,
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(border).add_modifier(Modifier::BOLD));
+    let body = Line::from(Span::styled(
+        msg,
+        Style::default()
+            .fg(fg)
+            .bg(border)
+            .add_modifier(Modifier::BOLD),
+    ));
+    frame.render_widget(Clear, area);
+    frame.render_widget(Paragraph::new(body).block(block), area);
+}
+
+fn spinner_frame() -> &'static str {
+    let ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let idx = ((ms / 80) as usize) % SPINNER.len();
+    SPINNER[idx]
 }
 
 fn draw_footer(frame: &mut Frame<'_>, area: Rect) {
@@ -183,15 +332,23 @@ fn draw_footer(frame: &mut Frame<'_>, area: Rect) {
 }
 
 fn pane_block(title: &str, active: bool) -> Block<'_> {
-    let style = if active {
-        Style::default().fg(Color::Cyan)
+    if active {
+        let accent = Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD);
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(accent)
+            .title(Span::styled(format!("▎ {title}"), accent))
     } else {
-        Style::default().fg(Color::DarkGray)
-    };
-    Block::default()
-        .borders(Borders::ALL)
-        .title(title)
-        .style(style)
+        Block::default()
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::DarkGray))
+            .title(Span::styled(
+                format!("  {title}"),
+                Style::default().fg(Color::Gray),
+            ))
+    }
 }
 
 fn snippet(content: &str, width: usize) -> String {

@@ -1,19 +1,13 @@
 ---
 name: recall
-description: Search memories from past Claude Code sessions in the CURRENT project. Use when the user's question could benefit from historical context, past decisions, debugging notes, architectural choices, or prior conversations in this repo — and whenever you see a "[lethe] Memory available" hint. For cross-project recall, use the recall-global skill instead.
-context: fork
-allowed-tools: Bash
+description: Search memories from past Codex CLI sessions in the CURRENT project. Use when the user's question could benefit from historical context, past decisions, debugging notes, architectural choices, or prior conversations in this repo — and whenever you see a "[lethe] Memory available" hint. For cross-project recall, use the recall-global skill instead.
 ---
 
-You are a memory retrieval agent for `lethe`, a markdown-first memory store with hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, and optional Haiku enrichment.
+You are a memory retrieval agent for `lethe`, a markdown-first memory store with hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, and optional LLM enrichment.
 
 ## Scope
 
 This skill searches memories **in the current project only**. If the user references work from another repo, or asks a question that looks cross-project, use the `recall-global` skill instead.
-
-## Project namespace
-
-Collection: !`bash "${CLAUDE_PLUGIN_ROOT}/scripts/derive-collection.sh"`
 
 Memories are stored under `.lethe/memory/*.md` inside the git root of the current project. The CLI automatically scopes to that directory.
 
@@ -35,7 +29,7 @@ Find memories relevant to: $ARGUMENTS
 
 4. **Drill further (only if critical).** If an expanded chunk contains a progressive-disclosure anchor of the form `<!-- session:<uuid> turn:<uuid> transcript:<path> -->` *and* the user's question genuinely needs the original dialogue (e.g. debugging a decision, tracing a subtle error), run:
 
-   `lethe-claude-code transcript <transcript-path> --turn <turn-uuid>`
+   `lethe-codex transcript <transcript-path> --turn <turn-uuid>`
 
    This returns the user turn and assistant response as plain text.
 

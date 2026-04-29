@@ -73,6 +73,10 @@ fn run_event_loop<B: ratatui::backend::Backend>(
 ) -> Result<()> {
     let tick_rate = Duration::from_millis(100);
     loop {
+        if app.needs_redraw {
+            terminal.clear()?;
+            app.needs_redraw = false;
+        }
         terminal.draw(|f| ui::draw(f, app))?;
         // Poll-based event loop so background search results can land.
         if event::poll(tick_rate)? {
@@ -86,6 +90,8 @@ fn run_event_loop<B: ratatui::backend::Backend>(
             }
         }
         app.poll_search_results();
+        app.poll_stats();
+        app.poll_toast();
     }
 }
 
@@ -122,6 +128,15 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
 
         (KeyCode::Up, _) => app.move_cursor(-1),
         (KeyCode::Down, _) => app.move_cursor(1),
+
+        // Yank: copy the selected result's content to the clipboard.
+        // Must precede the type-anywhere arm below so `y` doesn't get
+        // appended to the search box when Results is focused.
+        (KeyCode::Char('y'), m)
+            if (m - KeyModifiers::SHIFT).is_empty() && matches!(app.focus, Focus::Results) =>
+        {
+            app.copy_selected_to_clipboard();
+        }
 
         // Editing in the search input.
         (KeyCode::Backspace, _) if matches!(app.focus, Focus::Search) => {

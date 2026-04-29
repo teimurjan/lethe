@@ -14,6 +14,7 @@ members = [
     "crates/lethe-node",
     "crates/lethe-benchmark",
     "crates/lethe-claude-code",
+    "crates/lethe-codex",
 ]
 
 # One source of truth for the workspace version, propagated via

@@ -21,8 +21,28 @@ pub struct SearchRequest {
     pub top_k: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Phase {
+    LoadingBiEncoder,
+    LoadingCrossEncoder,
+    LoadingIndex,
+    Searching,
+}
+
+impl Phase {
+    pub fn label(self) -> &'static str {
+        match self {
+            Phase::LoadingBiEncoder => "loading bi-encoder weights",
+            Phase::LoadingCrossEncoder => "loading cross-encoder weights",
+            Phase::LoadingIndex => "loading project index",
+            Phase::Searching => "searching",
+        }
+    }
+}
+
 #[derive(Debug)]
 pub enum SearchOutput {
+    Phase(Phase),
     Hits(Vec<ResultRow>),
     Error(String),
 }
@@ -37,8 +57,7 @@ pub fn spawn() -> (Sender<SearchRequest>, Receiver<SearchOutput>) {
     thread::spawn(move || {
         let mut state = WorkerState::default();
         while let Ok(req) = req_rx.recv() {
-            let result = state.handle(req);
-            let _ = out_tx.send(result);
+            state.handle(req, &out_tx);
         }
     });
     (req_tx, out_rx)
@@ -57,12 +76,17 @@ struct WorkerState {
 }
 
 impl WorkerState {
-    fn ensure_encoders(&mut self) -> Result<(Arc<BiEncoder>, Arc<CrossEncoder>), String> {
+    fn ensure_encoders(
+        &mut self,
+        tx: &Sender<SearchOutput>,
+    ) -> Result<(Arc<BiEncoder>, Arc<CrossEncoder>), String> {
         if self.bi.is_none() {
+            let _ = tx.send(SearchOutput::Phase(Phase::LoadingBiEncoder));
             let b = BiEncoder::from_repo(DEFAULT_BI).map_err(|e| e.to_string())?;
             self.bi = Some(Arc::new(b));
         }
         if self.cross.is_none() {
+            let _ = tx.send(SearchOutput::Phase(Phase::LoadingCrossEncoder));
             let c = CrossEncoder::from_repo(DEFAULT_CROSS).map_err(|e| e.to_string())?;
             self.cross = Some(Arc::new(c));
         }
@@ -81,15 +105,20 @@ impl WorkerState {
         }
     }
 
-    fn handle(&mut self, req: SearchRequest) -> SearchOutput {
-        match self.run(req) {
+    fn handle(&mut self, req: SearchRequest, tx: &Sender<SearchOutput>) {
+        let result = match self.run(req, tx) {
             Ok(rows) => SearchOutput::Hits(rows),
             Err(e) => SearchOutput::Error(e),
-        }
+        };
+        let _ = tx.send(result);
     }
 
-    fn run(&mut self, req: SearchRequest) -> Result<Vec<ResultRow>, String> {
-        let (bi, cross) = self.ensure_encoders()?;
+    fn run(
+        &mut self,
+        req: SearchRequest,
+        tx: &Sender<SearchOutput>,
+    ) -> Result<Vec<ResultRow>, String> {
+        let (bi, cross) = self.ensure_encoders(tx)?;
         let cfg = Self::config_with_dim(bi.dim());
         match req.scope {
             Scope::AllProjects => {
@@ -100,6 +129,7 @@ impl WorkerState {
                     .collect::<Vec<_>>()
                     .join(",");
                 if self.union_cache_key.as_deref() != Some(&key) {
+                    let _ = tx.send(SearchOutput::Phase(Phase::LoadingIndex));
                     self.union_store = None;
                     self.single_store = None;
                     self.single_cache_slug = None;
@@ -112,6 +142,7 @@ impl WorkerState {
                     self.union_store = Some(union);
                     self.union_cache_key = Some(key);
                 }
+                let _ = tx.send(SearchOutput::Phase(Phase::Searching));
                 let store = self.union_store.as_ref().expect("just set");
                 let hits = store
                     .retrieve(&req.query, req.top_k)
@@ -129,6 +160,7 @@ impl WorkerState {
             }
             Scope::Single(entry) => {
                 if self.single_cache_slug.as_deref() != Some(entry.slug.as_str()) {
+                    let _ = tx.send(SearchOutput::Phase(Phase::LoadingIndex));
                     self.union_store = None;
                     self.union_cache_key = None;
                     let store_path = entry.root.join(".lethe").join("index");
@@ -142,6 +174,7 @@ impl WorkerState {
                     self.single_store = Some(store);
                     self.single_cache_slug = Some(entry.slug.clone());
                 }
+                let _ = tx.send(SearchOutput::Phase(Phase::Searching));
                 let store = self.single_store.as_ref().expect("just set");
                 let hits = store
                     .retrieve(&req.query, req.top_k)

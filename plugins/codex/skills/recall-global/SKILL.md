@@ -1,11 +1,9 @@
 ---
 name: recall-global
 description: Search memories across ALL registered lethe projects (cross-repo). Use when the user references work in another repo, asks "what did we do in project X", compares notes across projects, or when the single-project recall skill returned nothing relevant. For same-project recall, use the recall skill instead.
-context: fork
-allowed-tools: Bash
 ---
 
-You are a memory retrieval agent for `lethe`, a markdown-first memory store with hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, and optional Haiku enrichment.
+You are a memory retrieval agent for `lethe`, a markdown-first memory store with hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, and optional LLM enrichment.
 
 ## Scope
 
@@ -25,7 +23,7 @@ Find memories relevant to: $ARGUMENTS
 
 2. **Filter.** Skip results that obviously don't match the user's question. A weak cross-encoder score (< 0) usually means a miss.
 
-3. **Expand.** For the top 2–3 hits, run `lethe --root <project_root> expand <id>` to see the full markdown section — use the `project_root` from the search result so the expand hits the right project's index. (Or `cd` into that repo and run `lethe expand <id>`.)
+3. **Expand.** For the top 2–3 hits, run `lethe --root <project_root> expand <id>` to see the full markdown section — use the `project_root` from the search result so the expand hits the right project's index.
 
 4. **Summarize.** Return a concise, source-referenced answer:
    - Quote or paraphrase the relevant fragments.

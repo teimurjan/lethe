@@ -29,6 +29,16 @@ Update: `brew upgrade lethe && /reload-plugins`
 
 See [plugins/claude-code/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/claude-code/README.md) for the full hook table, config knobs, and debugging.
 
+### As a Codex CLI plugin
+
+```bash
+brew tap teimurjan/lethe && brew install lethe   # or: cargo install lethe-cli
+git clone https://github.com/teimurjan/lethe /tmp/lethe
+bash /tmp/lethe/plugins/codex/install.sh --auto-config
+```
+
+The installer copies hooks + skills to `~/.codex/lethe/` and patches `~/.codex/config.toml` between sentinel markers (re-runs replace the previous block). See [plugins/codex/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/codex/README.md) for the hook table and current limitations (no turn summarization yet — Codex transcript format pending).
+
 ### As a CLI
 
 ```bash

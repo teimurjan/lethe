@@ -6,8 +6,9 @@ self-improving memory store for LLM agents.
 ## Install
 
 ```bash
-brew install teimurjan/lethe/lethe   # macOS / Linuxbrew (recommended)
-cargo install lethe-cli              # any platform with a Rust toolchain
+brew tap teimurjan/lethe              # macOS / Linuxbrew (recommended)
+brew install lethe
+cargo install lethe-cli               # any platform with a Rust toolchain
 ```
 
 Or download a tarball from [GitHub Releases](https://github.com/teimurjan/lethe/releases).

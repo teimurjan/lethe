@@ -63,3 +63,4 @@ jobs:
           publish_if_new lethe-tui
           publish_if_new lethe-cli
           publish_if_new lethe-claude-code
+          publish_if_new lethe-codex

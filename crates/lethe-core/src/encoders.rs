@@ -21,7 +21,7 @@
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
-use hf_hub::api::sync::Api;
+use hf_hub::api::sync::ApiBuilder;
 use ndarray::{Array1, Array2, ArrayView1, Axis};
 use ort::session::{builder::GraphOptimizationLevel, Session};
 use ort::value::{DynValue, Value};
@@ -52,7 +52,15 @@ pub fn resolve_cross_name(name: &str) -> &str {
 }
 
 fn fetch_model(repo: &str) -> Result<(PathBuf, PathBuf), Error> {
-    let api = Api::new().map_err(|e| Error::Encoder(format!("hf-hub init: {e}")))?;
+    // `with_progress(false)` suppresses the indicatif progress bars
+    // that would otherwise leak onto stderr during cold load. Inside a
+    // ratatui alternate-screen TUI those bars stick around at "100%"
+    // and corrupt the screen until restart; outside the TUI we don't
+    // need them either since downloads are one-shot and silent is fine.
+    let api = ApiBuilder::new()
+        .with_progress(false)
+        .build()
+        .map_err(|e| Error::Encoder(format!("hf-hub init: {e}")))?;
     let repo_handle = api.model(repo.to_owned());
 
     // Common Xenova layout: onnx/model.onnx at the root + tokenizer.json.

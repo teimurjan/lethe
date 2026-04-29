@@ -1,0 +1,22 @@
+[package]
+name = "lethe-codex"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Codex CLI adapter for the lethe memory store. Helpers used only by the plugin under `plugins/codex/` (rollout transcript parsing, etc.). Not required to use lethe itself."
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+
+[[bin]]
+name = "lethe-codex"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+
+[lints]
+workspace = true

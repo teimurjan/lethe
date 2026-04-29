@@ -64,7 +64,8 @@ jobs:
             def install
               bin.install "lethe"
               bin.install "lethe-claude-code"
-              # Both binaries are linked with rpath \`@loader_path\`, so
+              bin.install "lethe-codex"
+              # All binaries are linked with rpath \`@loader_path\`, so
               # libduckdb resolves when shipped alongside them in bin/.
               bin.install "libduckdb.dylib"
             end
@@ -72,6 +73,7 @@ jobs:
             test do
               system "#{bin}/lethe", "--version"
               system "#{bin}/lethe-claude-code", "--version"
+              system "#{bin}/lethe-codex", "--version"
             end
           end
           EOF
