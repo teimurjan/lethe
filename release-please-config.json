@@ -42,6 +42,11 @@
         },
         {
           "type": "json",
+          "path": "plugins/claude-code/.claude-plugin/plugin.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
           "path": "crates/lethe-node/package.json",
           "jsonpath": "$.version"
         }
