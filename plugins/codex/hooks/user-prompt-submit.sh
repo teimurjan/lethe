@@ -41,11 +41,15 @@ else
 fi
 
 if [ -z "${LETHE_CLI}" ]; then
+  printf '{}'
   exit 0
 fi
 if ! ls "${LETHE_MEMORY_DIR}"/*.md >/dev/null 2>&1; then
+  printf '{}'
   exit 0
 fi
 
-printf '{"systemMessage":"[lethe] Memory available — use the recall skill for this project, or recall-global for all registered projects."}'
+# `additionalContext` injects into the model so Codex actually sees the hint
+# and invokes the recall skill. `systemMessage` would only render in the UI.
+printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"[lethe] Memory available — use the recall skill for this project, or recall-global for all registered projects."}}'
 exit 0

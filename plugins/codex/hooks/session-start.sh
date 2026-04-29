@@ -40,8 +40,13 @@ if [ -n "${LETHE_CLI}" ]; then
 fi
 
 if [ -n "${CONTEXT}" ]; then
-  MSG_JSON="$(_json_encode_str "# Recent Memory${CONTEXT}")"
-  printf '{"systemMessage":%s}' "${MSG_JSON}"
+  CTX_JSON="$(_json_encode_str "# Recent Memory${CONTEXT}")"
+  # `hookSpecificOutput.additionalContext` injects into the model's context
+  # window. `systemMessage` only renders as a UI banner — using it for the
+  # actual memory payload would make the recall invisible to Codex.
+  printf '{"hookSpecificOutput":{"hookEventName":"SessionStart","additionalContext":%s}}' "${CTX_JSON}"
+else
+  printf '{}'
 fi
 
 exit 0

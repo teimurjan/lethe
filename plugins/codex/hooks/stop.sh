@@ -13,9 +13,19 @@ source "${SCRIPT_DIR}/common.sh"
 _read_stdin_with_timeout || true
 _lethe_init_paths
 
+# Recursion guard: Codex sets `stop_hook_active=true` in the stdin payload
+# when the Stop event was triggered by a hook (e.g. our own `claude -p`
+# summarizer's nested Stop hook would re-fire this). Bail before we spawn
+# another summarizer.
+STOP_ACTIVE="$(_json_val stop_hook_active || true)"
+if [ "${STOP_ACTIVE}" = "true" ] || [ "${STOP_ACTIVE}" = "True" ]; then
+  exit 0
+fi
+
 TRANSCRIPT="$(_json_val transcript_path || true)"
 SESSION_ID="$(_json_val session_id || true)"
 TURN_ID="$(_json_val turn_id || true)"
+LAST_ASSISTANT_MSG="$(_json_val last_assistant_message || true)"
 
 TODAY="$(date +%Y-%m-%d)"
 NOW="$(date +%H:%M)"
@@ -42,6 +52,14 @@ if [ -n "${TRANSCRIPT}" ] && [ -f "${TRANSCRIPT}" ] \
     && command -v lethe-codex >/dev/null 2>&1 \
     && command -v claude >/dev/null 2>&1; then
   TURN_TEXT="$("${SCRIPT_DIR}/parse-transcript.sh" "${TRANSCRIPT}" || true)"
+  # Codex sometimes cleans up rollout files before the hook reads them, or
+  # the parser may not match the schema exactly. Fall back to the
+  # `last_assistant_message` field Codex provides directly in the stdin
+  # payload so summarization still happens.
+  if [ -z "${TURN_TEXT}" ] && [ -n "${LAST_ASSISTANT_MSG}" ]; then
+    TURN_TEXT="$(printf 'SESSION_ID: %s\nTURN_ID: %s\n---\nUSER:\n(unavailable)\n---\nASSISTANT:\n%s\n' \
+      "${SESSION_ID}" "${TURN_ID}" "${LAST_ASSISTANT_MSG}")"
+  fi
   if [ -n "${TURN_TEXT}" ]; then
     PARSED_SESSION="$(printf '%s\n' "${TURN_TEXT}" | awk -F': ' '/^SESSION_ID:/ {print $2; exit}')"
     [ -z "${SESSION_ID}" ] && SESSION_ID="${PARSED_SESSION}"
