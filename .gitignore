@@ -3,6 +3,7 @@ results/
 !legacy/benchmarks/results/
 legacy/benchmarks/results/int8_embeds/
 data/
+!video_playground/data/
 tmp_data/
 tmp_writeup/
 tmp_results/
