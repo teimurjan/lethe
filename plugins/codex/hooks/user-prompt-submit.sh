@@ -22,9 +22,10 @@ if [ ! -f "${TODAY_FILE}" ]; then
   printf '# %s\n\n' "${TODAY}" >"${TODAY_FILE}"
 fi
 
-# One header per session_id. Sentinel cleanup happens in stop.sh (Codex has no
-# SessionEnd hook). A stale sentinel only suppresses duplicate headers for an
-# already-closed session, which is harmless.
+# One header per session_id. Codex has no SessionEnd hook, so sentinels are
+# not cleaned up — they're tiny empty files under `<project>/.lethe/` and a
+# stale one only suppresses duplicate headers for an already-closed session,
+# which is harmless.
 if [ -n "${SESSION_ID}" ]; then
   SESSION_KEY="$(_sanitize_session_id "${SESSION_ID}")"
   SENTINEL="${LETHE_DIR}/.session-${SESSION_KEY}.header"

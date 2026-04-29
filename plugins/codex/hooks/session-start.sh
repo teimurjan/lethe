@@ -27,7 +27,10 @@ if ls "${LETHE_MEMORY_DIR}"/*.md >/dev/null 2>&1; then
     [ -z "$f" ] && continue
     name="$(basename "$f")"
     tail_txt="$(tail -n 30 "$f" 2>/dev/null)"
-    CONTEXT+="\n## ${name}\n${tail_txt}"
+    # Use real newlines (not "\n" literals — those would be JSON-escaped to
+    # `\\n` by _json_encode_str and the agent would see a backslash-n token
+    # instead of a line break).
+    printf -v CONTEXT '%s\n## %s\n%s' "${CONTEXT}" "${name}" "${tail_txt}"
   done < <(ls -t "${LETHE_MEMORY_DIR}"/*.md 2>/dev/null | head -n 2)
 fi
 

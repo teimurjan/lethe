@@ -28,8 +28,9 @@ mkdir -p "${LETHE_MEMORY_DIR}"
 [ -f "${TODAY_FILE}" ] || printf '# %s\n\n' "${TODAY}" >"${TODAY_FILE}"
 
 # Dedupe: if the most recent turn anchor already references this turn_id, skip.
+# `grep -F` so a turn_id containing regex metacharacters can't misfire.
 LAST_ANCHOR="$(grep -E '^<!-- session:' "${TODAY_FILE}" 2>/dev/null | tail -n 1 || true)"
-if [ -n "${TURN_ID}" ] && printf '%s' "${LAST_ANCHOR}" | grep -q "turn:${TURN_ID}"; then
+if [ -n "${TURN_ID}" ] && printf '%s' "${LAST_ANCHOR}" | grep -F -q -- "turn:${TURN_ID}"; then
   _log "stop: duplicate turn ${TURN_ID}, skipping"
 else
   {
@@ -39,10 +40,11 @@ else
   } >>"${TODAY_FILE}"
 fi
 
-# Best-effort cleanup of this session's header sentinel. Codex has no
-# SessionEnd hook, so there's no clean moment to clear it; doing it on Stop
-# means subsequent prompts in the same session won't add a fresh heading.
-# That's acceptable — one heading per session is correct behaviour.
+# No header-sentinel cleanup: Codex has no SessionEnd hook, and clearing the
+# sentinel on every Stop would let the next UserPromptSubmit add a fresh
+# `## Session HH:MM` heading mid-session. The sentinel is a tiny empty file
+# under `<project>/.lethe/`; stale ones only suppress duplicate headers for
+# already-closed sessions, which is the correct behaviour.
 
 if [ -n "${LETHE_CLI}" ]; then
   ( cd "${LETHE_GIT_ROOT}" && ${LETHE_CLI} index >/dev/null 2>&1 ) || true
