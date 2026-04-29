@@ -19,7 +19,7 @@ Find memories relevant to: $ARGUMENTS
 
 1. **Search.** Run the CLI with `--all`:
    - `lethe search "<query>" --all --top-k 5 --json-output`
-   - If `lethe` is not on PATH, ask the user to install it: `brew install teimurjan/lethe/lethe` (macOS / Linuxbrew) or `cargo install lethe-cli`.
+   - If `lethe` is not on PATH, ask the user to install it: `brew tap teimurjan/lethe && brew install lethe` (macOS / Linuxbrew) or `cargo install lethe-cli`.
 
    Output is JSON with per-project attribution: `[{"id": "...", "content": "...", "score": 4.2, "project_slug": "...", "project_root": "..."}, ...]`.
 

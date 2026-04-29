@@ -25,7 +25,7 @@ Find memories relevant to: $ARGUMENTS
 
 1. **Search.** Run the CLI:
    - `lethe search "<query>" --top-k 5 --json-output`
-   - If `lethe` is not on PATH, ask the user to install it: `brew install teimurjan/lethe/lethe` (macOS / Linuxbrew) or `cargo install lethe-cli`.
+   - If `lethe` is not on PATH, ask the user to install it: `brew tap teimurjan/lethe && brew install lethe` (macOS / Linuxbrew) or `cargo install lethe-cli`.
 
    Output is JSON: `[{"id": "...", "content": "...", "score": 4.2}, ...]`.
 

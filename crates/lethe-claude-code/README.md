@@ -8,8 +8,9 @@ framework-agnostic.
 ## Install
 
 ```bash
-brew install teimurjan/lethe/lethe   # ships alongside the `lethe` binary
-cargo install lethe-claude-code      # standalone
+brew tap teimurjan/lethe              # ships alongside the `lethe` binary
+brew install lethe
+cargo install lethe-claude-code       # standalone
 ```
 
 ## Subcommands

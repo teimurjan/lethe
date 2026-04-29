@@ -48,7 +48,7 @@ lethe enrich [DIR]              # optional: Haiku enrichment (needs ANTHROPIC_AP
 ## Requirements
 
 - `lethe` and `lethe-claude-code` binaries on PATH. Install with
-  `brew install teimurjan/lethe/lethe` (macOS / Linuxbrew) or
+  `brew tap teimurjan/lethe && brew install lethe` (macOS / Linuxbrew) or
   `cargo install lethe-cli lethe-claude-code`, or download a release
   tarball from https://github.com/teimurjan/lethe/releases.
 - `claude` CLI for the Stop hook summarizer (uses your existing auth — no extra API key)
