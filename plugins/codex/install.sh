@@ -57,7 +57,7 @@ timeout = 10
 [[hooks.Stop.hooks]]
 type = "command"
 command = "bash ${DEST}/hooks/stop.sh"
-timeout = 30
+timeout = 120
 
 [[skills.config]]
 path = "${DEST}/skills/recall"

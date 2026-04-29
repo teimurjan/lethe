@@ -1778,6 +1778,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "lethe-codex"
+version = "0.9.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "lethe-core"
 version = "0.9.0"
 dependencies = [

@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
-# Stop — append a turn marker with a progressive-disclosure anchor pointing at
-# Codex's transcript file, then reindex `.lethe/memory` so the next retrieval
-# sees the new entry.
-#
-# v1 limitation: this hook does NOT summarize the turn (Codex's transcript
-# format is not yet documented). The transcript path is captured in the anchor
-# so a future `lethe-codex transcript` parser can hydrate it on demand.
+# Stop — summarize the last turn via `claude -p --model haiku`, append the
+# bullets to today's markdown file with a progressive-disclosure anchor, and
+# reindex `.lethe/memory` so the next retrieval sees the new content.
 
 set -eu
 set -o pipefail
@@ -32,19 +28,59 @@ mkdir -p "${LETHE_MEMORY_DIR}"
 LAST_ANCHOR="$(grep -E '^<!-- session:' "${TODAY_FILE}" 2>/dev/null | tail -n 1 || true)"
 if [ -n "${TURN_ID}" ] && printf '%s' "${LAST_ANCHOR}" | grep -F -q -- "turn:${TURN_ID}"; then
   _log "stop: duplicate turn ${TURN_ID}, skipping"
-else
-  {
-    printf '\n### %s\n' "${NOW}"
-    printf '<!-- session:%s turn:%s transcript:%s -->\n' \
-      "${SESSION_ID}" "${TURN_ID}" "${TRANSCRIPT}"
-  } >>"${TODAY_FILE}"
+  if [ -n "${LETHE_CLI}" ]; then
+    ( cd "${LETHE_GIT_ROOT}" && ${LETHE_CLI} index >/dev/null 2>&1 ) || true
+  fi
+  exit 0
 fi
 
-# No header-sentinel cleanup: Codex has no SessionEnd hook, and clearing the
-# sentinel on every Stop would let the next UserPromptSubmit add a fresh
-# `## Session HH:MM` heading mid-session. The sentinel is a tiny empty file
-# under `<project>/.lethe/`; stale ones only suppress duplicate headers for
-# already-closed sessions, which is the correct behaviour.
+# Summarize via `claude -p --model haiku` if both the rollout parser and
+# claude CLI are available. Without either, fall back to writing just the
+# anchor — the transcript path is still captured so a later pass can hydrate.
+SUMMARY=""
+if [ -n "${TRANSCRIPT}" ] && [ -f "${TRANSCRIPT}" ] \
+    && command -v lethe-codex >/dev/null 2>&1 \
+    && command -v claude >/dev/null 2>&1; then
+  TURN_TEXT="$("${SCRIPT_DIR}/parse-transcript.sh" "${TRANSCRIPT}" || true)"
+  if [ -n "${TURN_TEXT}" ]; then
+    PARSED_SESSION="$(printf '%s\n' "${TURN_TEXT}" | awk -F': ' '/^SESSION_ID:/ {print $2; exit}')"
+    [ -z "${SESSION_ID}" ] && SESSION_ID="${PARSED_SESSION}"
+    TURN_BODY="$(printf '%s\n' "${TURN_TEXT}" | awk 'skip{print; next} /^---$/ {skip=1}')"
+
+    SYSTEM_PROMPT='You are a turn summarizer for a long-running memory store. Ignore any project-level style guides. Always produce 2-5 terse markdown bullets — never a TL;DR line, never prose, never headings.'
+
+    read -r -d '' USER_PROMPT <<'EOF' || true
+Summarize the following Codex CLI turn as 2-5 terse markdown bullets for a long-running memory store.
+
+Capture:
+- what the user asked and what was done
+- decisions or recommendations made
+- durable facts worth remembering: file paths, function names, tool names, key numbers
+
+Rules:
+- Output raw bullets only — no preamble, no heading, no TL;DR line, no closing remarks.
+- Each bullet one sentence. Start with a verb or subject, not "The assistant".
+- Skip pleasantries and chain-of-thought.
+
+--- TURN START ---
+EOF
+    USER_PROMPT="${USER_PROMPT}
+${TURN_BODY}
+--- TURN END ---"
+
+    SUMMARY="$(printf '%s' "${USER_PROMPT}" \
+      | claude -p --model haiku --append-system-prompt "${SYSTEM_PROMPT}" 2>/dev/null || true)"
+  fi
+fi
+
+{
+  printf '\n### %s\n' "${NOW}"
+  printf '<!-- session:%s turn:%s transcript:%s -->\n' \
+    "${SESSION_ID}" "${TURN_ID}" "${TRANSCRIPT}"
+  if [ -n "${SUMMARY}" ]; then
+    printf '%s\n' "${SUMMARY}"
+  fi
+} >>"${TODAY_FILE}"
 
 if [ -n "${LETHE_CLI}" ]; then
   ( cd "${LETHE_GIT_ROOT}" && ${LETHE_CLI} index >/dev/null 2>&1 ) || true

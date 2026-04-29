@@ -32,17 +32,17 @@ After install, a `.lethe/` directory will appear in each project's git root on f
 |-------|----------|
 | `SessionStart` | Injects the last ~30 lines from the 2 most recent daily files via `systemMessage`. |
 | `UserPromptSubmit` | On the first prompt of a session, appends a `## Session HH:MM` heading; emits a `[lethe] Memory available` hint so the agent invokes `recall` (this project) or `recall-global` (all projects). |
-| `Stop` | Appends a turn marker with a progressive-disclosure anchor pointing at Codex's transcript file, then reindexes `.lethe/memory`. |
+| `Stop` (async) | Summarizes the last turn via `claude -p --model haiku` (parsed from the rollout JSONL by `lethe-codex transcript`), appends bullets + a progressive-disclosure anchor to today's file, and reindexes. |
 
-### Limitations vs. the Claude Code plugin
+### Differences from the Claude Code plugin
 
-- **No turn-level summarization in v1.** Codex's transcript format isn't yet documented here, so the Stop hook only writes an anchor (timestamp + transcript path) and reindexes — it does not summarize the turn into bullets. Once the transcript schema is settled this will land in a follow-up.
-- **No SessionEnd hook** in Codex CLI. The header sentinel is reused across the session and not flushed; harmless in practice.
+- **No SessionEnd hook** in Codex CLI. Header sentinels persist for the whole session — they're tiny empty files in `<project>/.lethe/` and harmless if stale.
 
 ## Requirements
 
-- `lethe` binary on PATH (`brew tap teimurjan/lethe && brew install lethe` or `cargo install lethe-cli`).
+- `lethe`, `lethe-codex` (and `lethe-claude-code` if you also use the Claude Code plugin) binaries on PATH. Install with `brew tap teimurjan/lethe && brew install lethe` or `cargo install lethe-cli lethe-codex`.
 - Codex CLI with hooks enabled (`[features].codex_hooks = true`, set automatically by `--auto-config`).
+- `claude` CLI for the Stop hook summarizer (uses your existing auth — no extra API key). Without it, Stop still writes the anchor + reindexes; just no bullet summary.
 
 ## Debugging
 

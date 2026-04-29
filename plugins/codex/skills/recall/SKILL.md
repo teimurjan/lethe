@@ -27,7 +27,13 @@ Find memories relevant to: $ARGUMENTS
 
 3. **Expand.** For the top 2–3 hits, run `lethe expand <id>` to see the full markdown section — the short `content` shown in search results is often a single chunk, so expanding clarifies context.
 
-4. **Summarize.** Return a concise, source-referenced answer:
+4. **Drill further (only if critical).** If an expanded chunk contains a progressive-disclosure anchor of the form `<!-- session:<uuid> turn:<uuid> transcript:<path> -->` *and* the user's question genuinely needs the original dialogue (e.g. debugging a decision, tracing a subtle error), run:
+
+   `lethe-codex transcript <transcript-path> --turn <turn-uuid>`
+
+   This returns the user turn and assistant response as plain text.
+
+5. **Summarize.** Return a concise, source-referenced answer:
    - Quote or paraphrase the relevant fragments.
    - Cite which day / session each piece came from when it disambiguates.
    - If nothing clearly applies, say "No relevant memories found in this project — consider running recall-global." — do not fabricate.

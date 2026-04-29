@@ -32,6 +32,7 @@
 #
 #   rm -rf release_artifacts/lethe-macos-arm64* \
 #          release_artifacts/lethe-claude-code-macos-arm64* \
+#          release_artifacts/lethe-codex-macos-arm64* \
 #          release_artifacts/lethe_memory-*-macosx*.whl
 #   scripts/release/build.sh --napi --pypi
 #   git add release_artifacts/
@@ -42,7 +43,7 @@
 # to the same directory.
 #
 # Files produced (one tarball per platform contains the binaries; we
-# don't drop loose `lethe-*` / `lethe-claude-code-*` files alongside
+# don't drop loose `lethe-*` / `lethe-claude-code-*` / `lethe-codex-*` files alongside
 # it because that would just duplicate what's inside the tarball):
 #   * `lethe-macos-arm64.tar.gz`                — binaries + README + LICENSE (Homebrew, manual download)
 #   * `lethe-macos-arm64.node`                  — napi-rs binding (--napi)
@@ -69,6 +70,7 @@ FNAME="macos-arm64"
 RUST_BINS=(
   "lethe-cli:lethe"
   "lethe-claude-code:lethe-claude-code"
+  "lethe-codex:lethe-codex"
 )
 
 BUILD_NAPI="false"
