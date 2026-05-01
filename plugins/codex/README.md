@@ -38,11 +38,22 @@ After install, a `.lethe/` directory will appear in each project's git root on f
 
 - **No SessionEnd hook** in Codex CLI. Header sentinels persist for the whole session — they're tiny empty files in `<project>/.lethe/` and harmless if stale.
 
+### First-time setup
+
+Backfill memories from existing transcripts (Codex rollouts under
+`~/.codex/sessions/`, plus Claude Code transcripts if any) before relying on
+the live hooks:
+
+```bash
+lethe seed --days 7              # current project, both sources
+lethe seed --days 30 --source codex --dry-run   # preview only
+```
+
 ## Requirements
 
 - `lethe`, `lethe-codex` (and `lethe-claude-code` if you also use the Claude Code plugin) binaries on PATH. Install with `brew tap teimurjan/lethe && brew install lethe` or `cargo install lethe-cli lethe-codex`.
 - Codex CLI with hooks enabled (`[features].codex_hooks = true`, set automatically by `--auto-config`).
-- `claude` CLI for the Stop hook summarizer (uses your existing auth — no extra API key). Without it, Stop still writes the anchor + reindexes; just no bullet summary.
+- One of `codex` (preferred — uses your Codex auth) or `claude` (fallback) on PATH for the Stop hook summarizer. Without either, Stop still writes the anchor + reindexes; just no bullet summary.
 
 ## Debugging
 

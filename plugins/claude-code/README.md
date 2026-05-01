@@ -43,7 +43,14 @@ lethe config get KEY
 lethe config set KEY VALUE
 lethe reset --yes               # wipes .lethe/index/; markdown preserved
 lethe enrich [DIR]              # optional: Haiku enrichment (needs ANTHROPIC_API_KEY)
+lethe seed --days 7             # backfill memories from past Claude Code transcripts
 ```
+
+First-time adopters can backfill memories for the current project by running
+`lethe seed --days 7` (or `--days 30`) — it discovers past Claude Code
+transcripts under `~/.claude/projects/<slug>/`, summarizes each session via
+`claude -p --model haiku`, and writes anchored entries to `.lethe/memory/`.
+Idempotent on re-run.
 
 ## Requirements
 

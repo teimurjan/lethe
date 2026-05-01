@@ -39,6 +39,7 @@ brew install teimurjan/lethe/lethe       # or: cargo install lethe-cli
 lethe                                    # TUI
 lethe search "query" --top-k 5           # one project
 lethe search "query" --all --top-k 5     # all registered projects
+lethe seed --days 7                      # backfill from past Claude Code / Codex transcripts
 ```
 
 ![lethe TUI](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/tui.gif)

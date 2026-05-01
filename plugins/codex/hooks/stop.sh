@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Stop — summarize the last turn via `claude -p --model haiku`, append the
-# bullets to today's markdown file with a progressive-disclosure anchor, and
-# reindex `.lethe/memory` so the next retrieval sees the new content.
+# Stop — summarize the last turn via `codex exec` (preferred — uses the
+# user's existing Codex auth) or `claude -p --model haiku` (fallback when
+# `codex` isn't on PATH), append the bullets to today's markdown file with
+# a progressive-disclosure anchor, and reindex `.lethe/memory` so the next
+# retrieval sees the new content.
 
 set -eu
 set -o pipefail
@@ -44,13 +46,19 @@ if [ -n "${TURN_ID}" ] && printf '%s' "${LAST_ANCHOR}" | grep -F -q -- "turn:${T
   exit 0
 fi
 
-# Summarize via `claude -p --model haiku` if both the rollout parser and
-# claude CLI are available. Without either, fall back to writing just the
-# anchor — the transcript path is still captured so a later pass can hydrate.
+# Summarize via `codex exec` (preferred — uses the user's Codex auth) or
+# `claude -p --model haiku` as a fallback. Without either, fall back to
+# writing just the anchor — the transcript path is still captured so a
+# later pass can hydrate.
 SUMMARY=""
+HAVE_CODEX=0
+HAVE_CLAUDE=0
+command -v codex >/dev/null 2>&1 && HAVE_CODEX=1
+command -v claude >/dev/null 2>&1 && HAVE_CLAUDE=1
+
 if [ -n "${TRANSCRIPT}" ] && [ -f "${TRANSCRIPT}" ] \
     && command -v lethe-codex >/dev/null 2>&1 \
-    && command -v claude >/dev/null 2>&1; then
+    && [ "${HAVE_CODEX}" -eq 1 -o "${HAVE_CLAUDE}" -eq 1 ]; then
   TURN_TEXT="$("${SCRIPT_DIR}/parse-transcript.sh" "${TRANSCRIPT}" || true)"
   # Codex sometimes cleans up rollout files before the hook reads them, or
   # the parser may not match the schema exactly. Fall back to the
@@ -86,8 +94,22 @@ EOF
 ${TURN_BODY}
 --- TURN END ---"
 
-    SUMMARY="$(printf '%s' "${USER_PROMPT}" \
-      | claude -p --model haiku --append-system-prompt "${SYSTEM_PROMPT}" 2>/dev/null || true)"
+    if [ "${HAVE_CODEX}" -eq 1 ]; then
+      # codex exec has no --append-system-prompt; bundle the rules into the
+      # user message. Capture only the final assistant message via
+      # --output-last-message; stdout interleaves agent commentary.
+      CODEX_OUT="$(mktemp -t lethe-codex-stop.XXXXXX)"
+      printf '%s\n\n%s' "${SYSTEM_PROMPT}" "${USER_PROMPT}" \
+        | codex exec --skip-git-repo-check --output-last-message "${CODEX_OUT}" - \
+            >/dev/null 2>&1 || true
+      [ -s "${CODEX_OUT}" ] && SUMMARY="$(cat "${CODEX_OUT}")"
+      rm -f "${CODEX_OUT}"
+    fi
+
+    if [ -z "${SUMMARY}" ] && [ "${HAVE_CLAUDE}" -eq 1 ]; then
+      SUMMARY="$(printf '%s' "${USER_PROMPT}" \
+        | claude -p --model haiku --append-system-prompt "${SYSTEM_PROMPT}" 2>/dev/null || true)"
+    fi
   fi
 fi
 

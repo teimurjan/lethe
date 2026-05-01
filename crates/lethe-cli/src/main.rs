@@ -94,6 +94,27 @@ enum Cmd {
         #[command(subcommand)]
         action: ProjectsCmd,
     },
+    /// Backfill memories from past Claude Code / Codex transcripts for the
+    /// current project. Idempotent — re-running skips sessions already seeded.
+    Seed {
+        /// Lookback window in days (mtime filter on transcripts).
+        #[arg(long, default_value_t = 7)]
+        days: u64,
+        /// Which agent's transcripts to scan.
+        #[arg(long, default_value = "all", value_parser = ["all", "claude-code", "codex"])]
+        source: String,
+        /// List discovered sessions without summarizing or writing.
+        #[arg(long)]
+        dry_run: bool,
+        /// Skip the Haiku summarizer and store a raw last-prompt snippet instead.
+        #[arg(long)]
+        no_summarize: bool,
+        /// Cap the number of sessions processed in this run.
+        #[arg(long)]
+        max_sessions: Option<usize>,
+        #[arg(long)]
+        json_output: bool,
+    },
     /// Interactive TUI. Implicit when `lethe` is run with no args in a terminal.
     Tui,
 }
@@ -184,6 +205,22 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             Ok(2)
         }
         Cmd::Projects { action } => commands::projects::run(action),
+        Cmd::Seed {
+            days,
+            source,
+            dry_run,
+            no_summarize,
+            max_sessions,
+            json_output,
+        } => commands::seed::run(
+            root,
+            days,
+            &source,
+            dry_run,
+            no_summarize,
+            max_sessions,
+            json_output,
+        ),
         Cmd::Tui => commands::tui::run(),
     }
 }
