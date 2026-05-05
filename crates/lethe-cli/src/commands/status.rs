@@ -26,7 +26,11 @@ struct StatusFull {
 
 pub fn run(root: Option<&str>) -> Result<i32> {
     let paths = resolve(root);
-    if !paths.index().exists() {
+    let db_path = paths.index().join("lethe.duckdb");
+    // The directory may exist (e.g. partially-initialized after a
+    // half-finished `lethe index`) without the DuckDB file — treat
+    // that as uninitialized rather than erroring.
+    if !paths.index().exists() || !db_path.exists() {
         let payload = StatusEmpty {
             root: paths.root.to_str().unwrap_or(""),
             initialized: false,
@@ -35,7 +39,7 @@ pub fn run(root: Option<&str>) -> Result<i32> {
         println!("{}", serde_json::to_string_pretty(&payload)?);
         return Ok(0);
     }
-    let db = MemoryDb::open_with_mode(paths.index().join("lethe.duckdb"), true)?;
+    let db = MemoryDb::open_with_mode(db_path, true)?;
     let rows = db.load_all_entries()?;
     let total_entries = rows.len() as i64;
     let mut tiers: BTreeMap<String, i64> = BTreeMap::new();

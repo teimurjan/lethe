@@ -95,11 +95,15 @@ impl WorkerState {
 
     fn config_with_dim(dim: usize) -> StoreConfig {
         // The TUI is a long-running interactive UI: opening read-only
-        // means it never holds the writer lock, so hooks (`lethe index`
-        // on session end) and parallel CLI searches can keep working
-        // while the TUI is open. Trade-off: retrieval inside the TUI
-        // doesn't bump RIF state on disk — same trade-off as the CLI
-        // `--read-only` flag.
+        // ensures it can never accidentally mutate the index, and lets
+        // parallel `lethe search --read-only` (or `lethe search --all`)
+        // invocations stack — DuckDB permits many shared-lock readers
+        // concurrently. A writer (`lethe index` / stop hook) still
+        // serializes against this shared lock and waits via the
+        // open-with-retry helper while the TUI is up; we accept that
+        // because the alternative — TUI as writer — would block all
+        // readers across N projects. Trade-off: retrieval inside the
+        // TUI doesn't bump RIF state on disk, same as `--read-only`.
         StoreConfig {
             dim,
             rif: RifConfig {

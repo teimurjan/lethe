@@ -113,8 +113,10 @@ pub struct MemoryDb {
 const OPEN_RETRY_BACKOFF_MS: &[u64] = &[100, 200, 400, 800, 1600, 3200, 6400];
 
 fn is_lock_error(err: &duckdb::Error) -> bool {
-    let msg = err.to_string();
-    msg.contains("Could not set lock on file") || msg.contains("conflicting lock")
+    // DuckDB's IO error capitalizes the second phrase ("Conflicting lock
+    // is held"), so normalize before matching.
+    let msg = err.to_string().to_lowercase();
+    msg.contains("could not set lock on file") || msg.contains("conflicting lock")
 }
 
 impl MemoryDb {

@@ -1,10 +1,9 @@
 //! Cross-project read-only retrieval — port of
 //! `research_playground/lethe_reference/lethe/union_store.py`.
 //!
-//! For each registered project: opens the per-project DuckDB read-only
-//! (so the per-project hook writers can keep mutating freely), fans
-//! the hybrid retrieve out via the same BM25/dense/RRF stack, then
-//! cross-encoder reranks the merged pool.
+//! For each registered project: opens the per-project DuckDB read-only,
+//! fans the hybrid retrieve out via the same BM25/dense/RRF stack,
+//! then cross-encoder reranks the merged pool.
 //!
 //! The Python implementation uses one in-memory DuckDB and ATTACHes
 //! every project to it. The Rust port goes simpler: open one
@@ -12,9 +11,11 @@
 //! retrieve, then merge across projects via a per-project RRF.
 //!
 //! Each per-project DuckDB is opened with `AccessMode::ReadOnly`, so
-//! many `lethe search` / `recall-global` invocations can share the
-//! same index files concurrently — DuckDB allows one writer xor many
-//! readers per file. The stop-hook ingest path keeps its writer.
+//! many `lethe search --all` / `recall-global` invocations can stack
+//! shared-lock readers on the same index file. DuckDB's cross-process
+//! semantics are one writer xor many readers per file, so an ingest
+//! writer (`lethe index` / stop hook) still serializes against active
+//! readers — it waits through the open-with-retry helper in `db.rs`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
