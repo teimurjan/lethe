@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.13.0](https://github.com/teimurjan/lethe/compare/lethe-v0.12.0...lethe-v0.13.0) (2026-05-05)
+
+
+### Features
+
+* Concurrent recall + TUI activity pane ([#34](https://github.com/teimurjan/lethe/issues/34)) ([ea330f5](https://github.com/teimurjan/lethe/commit/ea330f5cb87777db74dd069b6da382b1dc234631))
+
 ## [0.12.0](https://github.com/teimurjan/lethe/compare/lethe-v0.11.0...lethe-v0.12.0) (2026-05-01)
 
 
