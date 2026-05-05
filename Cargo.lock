@@ -1744,7 +1744,7 @@ checksum = "09edd9e8b54e49e587e4f6295a7d29c3ea94d469cb40ab8ca70b288248a81db2"
 
 [[package]]
 name = "lethe-benchmark"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1756,7 +1756,7 @@ dependencies = [
 
 [[package]]
 name = "lethe-claude-code"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1766,7 +1766,7 @@ dependencies = [
 
 [[package]]
 name = "lethe-cli"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1782,7 +1782,7 @@ dependencies = [
 
 [[package]]
 name = "lethe-codex"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "clap",
@@ -1792,7 +1792,7 @@ dependencies = [
 
 [[package]]
 name = "lethe-core"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "approx",
  "bincode",
@@ -1820,7 +1820,7 @@ dependencies = [
 
 [[package]]
 name = "lethe-node"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "lethe-core",
  "napi",
@@ -1831,7 +1831,7 @@ dependencies = [
 
 [[package]]
 name = "lethe-py"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "lethe-core",
  "pyo3",
@@ -1839,7 +1839,7 @@ dependencies = [
 
 [[package]]
 name = "lethe-tui"
-version = "0.12.0"
+version = "0.13.0"
 dependencies = [
  "anyhow",
  "arboard",
