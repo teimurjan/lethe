@@ -99,6 +99,17 @@ pub struct EntryRow {
     pub suppression: f32,
 }
 
+/// One row from a "top-active" RIF read — entries whose current
+/// suppression score is highest, surfaced in observer UIs to show
+/// what RIF is currently competing on. Read-only.
+#[derive(Debug, Clone)]
+pub struct ActiveEntry {
+    pub id: String,
+    pub content: String,
+    pub suppression: f32,
+    pub step: i64,
+}
+
 #[derive(Debug)]
 pub struct MemoryDb {
     pub path: PathBuf,
@@ -292,6 +303,45 @@ impl MemoryDb {
             params![key, value],
         )?;
         Ok(())
+    }
+
+    // -------- RIF top-active read --------
+
+    /// Top `limit` entries ranked by current suppression. Prefers the
+    /// per-cluster `cluster_suppression` table (clustered RIF) and
+    /// falls back to `entries.suppression` (global RIF). Reads only —
+    /// safe for concurrent read-only callers.
+    pub fn top_active_entries(&self, limit: usize) -> Result<Vec<ActiveEntry>, crate::Error> {
+        let mut stmt = self.conn.prepare(
+            "SELECT e.id, e.content, \
+                    COALESCE(c.s, e.suppression) AS active, \
+                    COALESCE(c.step, e.last_retrieved_step) AS step \
+             FROM entries e \
+             LEFT JOIN ( \
+                 SELECT entry_id, MAX(suppression_score) AS s, MAX(step_updated) AS step \
+                 FROM cluster_suppression GROUP BY entry_id \
+             ) c ON c.entry_id = e.id \
+             WHERE COALESCE(c.s, e.suppression) > 0 \
+             ORDER BY active DESC, step DESC \
+             LIMIT ?",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            let id: String = row.get(0)?;
+            let content: String = row.get(1)?;
+            let suppression: f64 = row.get(2)?;
+            let step: i64 = row.get(3)?;
+            Ok(ActiveEntry {
+                id,
+                content,
+                suppression: suppression as f32,
+                step,
+            })
+        })?;
+        let mut out = Vec::with_capacity(limit);
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 
     // -------- clustered RIF persistence --------

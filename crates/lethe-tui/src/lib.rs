@@ -91,6 +91,7 @@ fn run_event_loop<B: ratatui::backend::Backend>(
         }
         app.poll_search_results();
         app.poll_stats();
+        app.poll_rif();
         app.poll_toast();
     }
 }
