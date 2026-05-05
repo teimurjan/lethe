@@ -29,7 +29,7 @@ pub fn run(
     std::fs::create_dir_all(paths.memory())?;
     std::fs::create_dir_all(paths.index())?;
     let cfg = load_config(&paths.config_path())?;
-    let store = open_store(&paths.index(), &cfg, true)?;
+    let store = open_store(&paths.index(), &cfg, true, false)?;
     let memory_dir = dir.map_or(paths.memory(), PathBuf::from);
     let counts = markdown_store::reindex(&memory_dir, &store)?;
     store.save()?;

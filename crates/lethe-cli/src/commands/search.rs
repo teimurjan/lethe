@@ -31,12 +31,26 @@ struct UnionHitJson {
     score: f32,
 }
 
-pub fn run_local(root: Option<&str>, query: &str, top_k: usize, json_output: bool) -> Result<i32> {
+/// Single-project search. By default the index is opened read-write
+/// and retrieval-driven state (suppression scores, tier transitions,
+/// retrieval counts) is persisted after the query so RIF evolves.
+/// Pass `read_only=true` (`--read-only` on the CLI) to share the
+/// index with other concurrent lethe processes — at the cost of not
+/// learning from this query.
+pub fn run_local(
+    root: Option<&str>,
+    query: &str,
+    top_k: usize,
+    json_output: bool,
+    read_only: bool,
+) -> Result<i32> {
     let paths = resolve(root);
     let cfg = load_config(&paths.config_path())?;
-    let store = open_store(&paths.index(), &cfg, true)?;
+    let store = open_store(&paths.index(), &cfg, true, read_only)?;
     let hits = store.retrieve(query, top_k)?;
-    store.save()?;
+    if !read_only {
+        store.save()?;
+    }
 
     if json_output {
         let payload: Vec<LocalHit> = hits

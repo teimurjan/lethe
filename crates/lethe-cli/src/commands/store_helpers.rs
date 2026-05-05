@@ -61,8 +61,15 @@ pub fn save_config(config_path: &Path, cfg: &CliConfig) -> Result<()> {
 
 /// Build a `MemoryStore` rooted at `<paths.index()>` honoring `cfg`.
 /// `need_encoders=true` triggers the (potentially network-bound)
-/// model download + ONNX session warm-up.
-pub fn open_store(index_dir: &Path, cfg: &CliConfig, need_encoders: bool) -> Result<MemoryStore> {
+/// model download + ONNX session warm-up. `read_only=true` opens the
+/// DuckDB connection in `AccessMode::ReadOnly` so the recall path can
+/// run alongside other lethe processes (multi-reader, single-writer).
+pub fn open_store(
+    index_dir: &Path,
+    cfg: &CliConfig,
+    need_encoders: bool,
+    read_only: bool,
+) -> Result<MemoryStore> {
     let bi = if need_encoders {
         Some(Arc::new(BiEncoder::from_repo(&cfg.bi_encoder)?))
     } else {
@@ -82,6 +89,7 @@ pub fn open_store(index_dir: &Path, cfg: &CliConfig, need_encoders: bool) -> Res
     let store_cfg = StoreConfig {
         dim,
         rif,
+        read_only,
         ..StoreConfig::default()
     };
     let store = MemoryStore::open(index_dir, bi, cross, store_cfg)?;

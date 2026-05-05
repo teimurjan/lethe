@@ -15,8 +15,9 @@
 //! that landed in PR #15 so save() doesn't dominate `lethe search`.
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use duckdb::{params, Connection};
+use duckdb::{params, AccessMode, Config, Connection};
 use ndarray::{Array1, Array2, ArrayView1};
 
 use crate::dedup::content_hash;
@@ -98,28 +99,72 @@ pub struct EntryRow {
     pub suppression: f32,
 }
 
+/// One row from a "top-active" RIF read — entries whose current
+/// suppression score is highest, surfaced in observer UIs to show
+/// what RIF is currently competing on. Read-only.
+#[derive(Debug, Clone)]
+pub struct ActiveEntry {
+    pub id: String,
+    pub content: String,
+    pub suppression: f32,
+    pub step: i64,
+}
+
 #[derive(Debug)]
 pub struct MemoryDb {
     pub path: PathBuf,
     conn: Connection,
 }
 
+// Open-on-lock retry: DuckDB serializes file access across processes,
+// so a writer (`lethe index` / stop hook) briefly blocks readers. We
+// poll with exponential backoff for ~12 s — long enough to cover a
+// real reindex, short enough that a permanently-stuck writer surfaces
+// to the user instead of hanging forever.
+const OPEN_RETRY_BACKOFF_MS: &[u64] = &[100, 200, 400, 800, 1600, 3200, 6400];
+
+fn is_lock_error(err: &duckdb::Error) -> bool {
+    // DuckDB's IO error capitalizes the second phrase ("Conflicting lock
+    // is held"), so normalize before matching.
+    let msg = err.to_string().to_lowercase();
+    msg.contains("could not set lock on file") || msg.contains("conflicting lock")
+}
+
 impl MemoryDb {
-    /// Open or create the DuckDB at `path`. Mirrors the legacy-SQLite
-    /// guard: if a `lethe.db` SQLite file is present without
-    /// `lethe.duckdb`, refuse to open and tell the user to reset.
+    /// Open or create the DuckDB at `path` in read-write mode. Mirrors
+    /// the legacy-SQLite guard: if a `lethe.db` SQLite file is present
+    /// without `lethe.duckdb`, refuse to open and tell the user to reset.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, crate::Error> {
+        Self::open_with_mode(path, false)
+    }
+
+    /// Open the DuckDB at `path`. When `read_only` is true the
+    /// connection uses `AccessMode::ReadOnly` so multiple processes can
+    /// share the same file (DuckDB allows one writer xor many readers
+    /// per file). The recall paths use this so parallel `lethe search`
+    /// invocations don't fight over the writer lock.
+    pub fn open_with_mode(
+        path: impl AsRef<Path>,
+        read_only: bool,
+    ) -> Result<Self, crate::Error> {
         let path = path.as_ref().to_path_buf();
         let legacy = path.with_file_name("lethe.db");
         if legacy.exists() && !path.exists() {
             return Err(crate::Error::LegacySqlite { path: legacy });
         }
-        if let Some(parent) = path.parent() {
+        if read_only {
+            if !path.exists() {
+                return Err(crate::Error::MissingFile { path });
+            }
+        } else if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let conn = Connection::open(&path)?;
-        for stmt in split_statements(SCHEMA) {
-            conn.execute_batch(stmt)?;
+
+        let conn = open_connection_with_retry(&path, read_only)?;
+        if !read_only {
+            for stmt in split_statements(SCHEMA) {
+                conn.execute_batch(stmt)?;
+            }
         }
         Ok(Self { path, conn })
     }
@@ -258,6 +303,53 @@ impl MemoryDb {
             params![key, value],
         )?;
         Ok(())
+    }
+
+    // -------- RIF top-active read --------
+
+    /// Top `limit` entries ranked by current suppression. Prefers the
+    /// per-cluster `cluster_suppression` table (clustered RIF) and
+    /// falls back to `entries.suppression` (global RIF). Reads only —
+    /// safe for concurrent read-only callers.
+    pub fn top_active_entries(&self, limit: usize) -> Result<Vec<ActiveEntry>, crate::Error> {
+        // Pick the SINGLE highest-suppression row per entry from
+        // cluster_suppression so `s` and `step` come from the same
+        // record (a per-column MAX could pair an unrelated step with
+        // the score).
+        let mut stmt = self.conn.prepare(
+            "SELECT e.id, e.content, \
+                    COALESCE(c.suppression_score, e.suppression) AS active, \
+                    COALESCE(c.step_updated, e.last_retrieved_step) AS step \
+             FROM entries e \
+             LEFT JOIN ( \
+                 SELECT entry_id, suppression_score, step_updated \
+                 FROM cluster_suppression \
+                 QUALIFY ROW_NUMBER() OVER ( \
+                     PARTITION BY entry_id \
+                     ORDER BY suppression_score DESC, step_updated DESC \
+                 ) = 1 \
+             ) c ON c.entry_id = e.id \
+             WHERE COALESCE(c.suppression_score, e.suppression) > 0 \
+             ORDER BY active DESC, step DESC \
+             LIMIT ?",
+        )?;
+        let rows = stmt.query_map(params![limit as i64], |row| {
+            let id: String = row.get(0)?;
+            let content: String = row.get(1)?;
+            let suppression: f64 = row.get(2)?;
+            let step: i64 = row.get(3)?;
+            Ok(ActiveEntry {
+                id,
+                content,
+                suppression: suppression as f32,
+                step,
+            })
+        })?;
+        let mut out = Vec::with_capacity(limit);
+        for r in rows {
+            out.push(r?);
+        }
+        Ok(out)
     }
 
     // -------- clustered RIF persistence --------
@@ -435,6 +527,33 @@ fn split_statements(sql: &str) -> Vec<&str> {
         .collect()
 }
 
+fn open_connection_with_retry(path: &Path, read_only: bool) -> Result<Connection, crate::Error> {
+    for (attempt, backoff_ms) in std::iter::once(0_u64)
+        .chain(OPEN_RETRY_BACKOFF_MS.iter().copied())
+        .enumerate()
+    {
+        if backoff_ms > 0 {
+            std::thread::sleep(Duration::from_millis(backoff_ms));
+        }
+        let result = if read_only {
+            let cfg = Config::default().access_mode(AccessMode::ReadOnly)?;
+            Connection::open_with_flags(path, cfg)
+        } else {
+            Connection::open(path)
+        };
+        match result {
+            Ok(conn) => return Ok(conn),
+            Err(e) => {
+                let last = attempt == OPEN_RETRY_BACKOFF_MS.len();
+                if last || !is_lock_error(&e) {
+                    return Err(e.into());
+                }
+            }
+        }
+    }
+    unreachable!("retry loop exits via return")
+}
+
 /// Convenience: build a fresh embedding row from an entry's vector.
 /// Kept here so MemoryStore doesn't need to know `Array1<f32>` shape
 /// arithmetic when persisting via npz.
@@ -528,5 +647,45 @@ mod tests {
         for (a, b) in centroids.iter().zip(loaded.iter()) {
             assert!((a - b).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn read_only_open_blocks_writes_and_allows_reads() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("lethe.duckdb");
+        {
+            let writer = MemoryDb::open(&path).unwrap();
+            writer.insert_entry(&entry("a", "alpha")).unwrap();
+        }
+        let ro = MemoryDb::open_with_mode(&path, true).unwrap();
+        assert_eq!(ro.load_all_entries().unwrap().len(), 1);
+        let res = ro.insert_entry(&entry("b", "beta"));
+        assert!(res.is_err(), "insert on read-only conn should fail");
+    }
+
+    #[test]
+    fn concurrent_readers_share_one_file() {
+        // Regression for: parallel `lethe search` invocations failed
+        // with "Could not set lock on file" because each connection
+        // demanded the writer lock. With AccessMode::ReadOnly, N readers
+        // coexist.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("lethe.duckdb");
+        {
+            let writer = MemoryDb::open(&path).unwrap();
+            writer.insert_entry(&entry("a", "alpha")).unwrap();
+            writer.insert_entry(&entry("b", "beta")).unwrap();
+        }
+        let r1 = MemoryDb::open_with_mode(&path, true).unwrap();
+        let r2 = MemoryDb::open_with_mode(&path, true).unwrap();
+        assert_eq!(r1.load_all_entries().unwrap().len(), 2);
+        assert_eq!(r2.load_all_entries().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn read_only_missing_file_errors() {
+        let dir = tempdir().unwrap();
+        let res = MemoryDb::open_with_mode(dir.path().join("lethe.duckdb"), true);
+        assert!(matches!(res, Err(crate::Error::MissingFile { .. })));
     }
 }

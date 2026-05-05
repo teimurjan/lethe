@@ -141,6 +141,7 @@ impl PyMemoryStore {
                 confidence_threshold,
                 dedup_threshold,
                 rif: rif_config.map_or_else(RifConfig::default, |c| c.inner),
+                read_only: false,
             };
             let store = CoreStore::open(&path, bi, cross, cfg).map_err(map_err)?;
             Ok(Self { inner: store })

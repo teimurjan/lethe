@@ -42,14 +42,19 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
 fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(28), Constraint::Min(20)])
+        .constraints([Constraint::Length(40), Constraint::Min(20)])
         .split(area);
     let left = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([Constraint::Min(5), Constraint::Length(8)])
+        .constraints([
+            Constraint::Min(5),
+            Constraint::Length(7),
+            Constraint::Length(8),
+        ])
         .split(chunks[0]);
     draw_projects(frame, left[0], app);
-    draw_stats(frame, left[1], app);
+    draw_rif(frame, left[1], app);
+    draw_stats(frame, left[2], app);
     draw_results_pane(frame, chunks[1], app);
 }
 
@@ -167,25 +172,13 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         return;
     }
 
+    let top_score = app.results.first().map_or(0.0, |r| r.score);
+    let interior = (area.width.saturating_sub(2)) as usize;
     let items: Vec<ListItem> = app
         .results
         .iter()
-        .map(|r| {
-            let mut spans: Vec<Span<'_>> = Vec::with_capacity(4);
-            if let Some(slug) = &r.project_slug {
-                spans.push(Span::styled(
-                    format!("[{slug}] "),
-                    Style::default().fg(Color::Magenta),
-                ));
-            }
-            spans.push(Span::styled(
-                format!("{:+.2}", r.score),
-                Style::default().fg(Color::Cyan),
-            ));
-            spans.push(Span::raw("  "));
-            spans.push(Span::raw(snippet(&r.content, 200)));
-            ListItem::new(Line::from(spans))
-        })
+        .enumerate()
+        .map(|(idx, r)| result_row(idx, r, top_score, interior))
         .collect();
 
     let mut state = ListState::default();
@@ -194,6 +187,54 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .block(block)
         .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
     frame.render_stateful_widget(list, area, &mut state);
+}
+
+fn draw_rif(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let block = pane_block("Active Memories", false);
+    let interior = area.width.saturating_sub(2) as usize;
+    if app.rif.rows.is_empty() {
+        let para = Paragraph::new(Line::from(Span::styled(
+            "(idle)",
+            Style::default().fg(Color::DarkGray),
+        )))
+        .block(block);
+        frame.render_widget(para, area);
+        return;
+    }
+    // Visible rows: pane Length is 7 → 5 content rows.
+    let lines: Vec<Line<'_>> = app
+        .rif
+        .rows
+        .iter()
+        .take(5)
+        .map(|r| rif_line(r, interior))
+        .collect();
+    let para = Paragraph::new(lines).block(block);
+    frame.render_widget(para, area);
+}
+
+fn rif_line(r: &crate::app::RifActiveRow, interior: usize) -> Line<'_> {
+    // "<score> [<slug≤8>] <snippet>" — measure score and slug widths
+    // from their actual formatted strings so unusual values (e.g.
+    // "12.34", "-1.00") don't overflow snippet_room.
+    let score = format!("{:.2}", r.suppression);
+    let slug = truncate(&r.project_slug, 8);
+    // score + " " + "[" + slug + "] " + " "  →  score + slug + 4
+    let prefix_w = score.chars().count() + slug.chars().count() + 4;
+    let snippet_room = interior.saturating_sub(prefix_w).max(8);
+    let snip = snippet(&r.content, snippet_room);
+    Line::from(vec![
+        Span::styled(
+            score,
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw(" "),
+        Span::styled(format!("[{slug}]"), Style::default().fg(Color::Magenta)),
+        Span::raw(" "),
+        Span::raw(snip),
+    ])
 }
 
 fn draw_stats(frame: &mut Frame<'_>, area: Rect, app: &App) {
@@ -349,6 +390,76 @@ fn pane_block(title: &str, active: bool) -> Block<'_> {
                 Style::default().fg(Color::Gray),
             ))
     }
+}
+
+// Layout: "<rank 3>" + "<bar 5>" + "  " (2) = 10 fixed left columns; then
+// snippet fills the remaining width minus a right-side reservation for the
+// [slug] tag (with a 2-space margin from the snippet text).
+fn result_row(
+    idx: usize,
+    r: &crate::app::ResultRow,
+    top_score: f32,
+    interior: usize,
+) -> ListItem<'_> {
+    const LEFT_FIXED: usize = 10;
+    let is_top = idx < 3;
+    let snippet_style = if is_top {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::DarkGray)
+    };
+
+    let slug_tag = r.project_slug.as_ref().map(|s| format!("[{s}]"));
+    let slug_w = slug_tag.as_ref().map_or(0, |s| s.chars().count());
+    let right_reserve = if slug_w > 0 { slug_w + 2 } else { 0 };
+    let snippet_room = interior
+        .saturating_sub(LEFT_FIXED)
+        .saturating_sub(right_reserve)
+        .max(8);
+    let snip = snippet(&r.content, snippet_room);
+    let pad = snippet_room.saturating_sub(snip.chars().count());
+
+    let mut spans: Vec<Span<'_>> = Vec::with_capacity(6);
+    if is_top {
+        spans.push(Span::styled(
+            format!("{}. ", idx + 1),
+            Style::default()
+                .fg(Color::Yellow)
+                .add_modifier(Modifier::BOLD),
+        ));
+    } else {
+        spans.push(Span::raw("   "));
+    }
+    spans.push(Span::styled(
+        relevance_bar(r.score, top_score),
+        Style::default().fg(Color::Cyan),
+    ));
+    spans.push(Span::raw("  "));
+    spans.push(Span::styled(snip, snippet_style));
+    if let Some(tag) = slug_tag {
+        spans.push(Span::raw(" ".repeat(pad + 2)));
+        spans.push(Span::styled(tag, Style::default().fg(Color::Magenta)));
+    }
+    ListItem::new(Line::from(spans))
+}
+
+fn relevance_bar(score: f32, top: f32) -> String {
+    const CELLS: usize = 5;
+    let ratio = if top > f32::EPSILON {
+        (score / top).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let filled = (ratio * CELLS as f32).round() as usize;
+    let filled = filled.min(CELLS);
+    let mut out = String::with_capacity(CELLS * 3);
+    for _ in 0..filled {
+        out.push('▰');
+    }
+    for _ in filled..CELLS {
+        out.push('▱');
+    }
+    out
 }
 
 fn snippet(content: &str, width: usize) -> String {

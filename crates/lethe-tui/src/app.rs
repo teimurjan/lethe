@@ -7,7 +7,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use lethe_core::db::MemoryDb;
+use lethe_core::db::{ActiveEntry, MemoryDb};
 use lethe_core::registry::{self, ProjectEntry};
 
 use crate::search_worker::{self, Phase, SearchOutput, SearchRequest};
@@ -17,6 +17,21 @@ pub struct Stats {
     pub total: usize,
     /// `(slug, count)` sorted descending by count.
     pub by_project: Vec<(String, usize)>,
+}
+
+#[derive(Debug, Clone)]
+pub struct RifActiveRow {
+    pub project_slug: String,
+    pub content: String,
+    pub suppression: f32,
+    pub step: i64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct RifActivity {
+    /// Top entries across all registered projects, sorted by suppression
+    /// score descending. Refreshed on a background poll loop.
+    pub rows: Vec<RifActiveRow>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +116,12 @@ pub struct App {
     pub stats: Option<Stats>,
     pub stats_rx: mpsc::Receiver<Stats>,
 
+    /// Most-suppressed entries across all projects. Refreshed by a
+    /// background poller so external `lethe search` calls (from the
+    /// agent) become visible while the TUI is open.
+    pub rif: RifActivity,
+    pub rif_rx: mpsc::Receiver<RifActivity>,
+
     /// Channels owned by the background search worker.
     pub search_tx: mpsc::Sender<SearchRequest>,
     pub search_rx: mpsc::Receiver<SearchOutput>,
@@ -111,6 +132,7 @@ impl App {
         let projects = registry::load();
         let (search_tx, search_rx) = search_worker::spawn();
         let stats_rx = spawn_stats(projects.clone());
+        let rif_rx = spawn_rif_poller(projects.clone());
         Self {
             focus: Focus::Search,
             scope: Scope::AllProjects,
@@ -127,6 +149,8 @@ impl App {
             needs_redraw: false,
             stats: None,
             stats_rx,
+            rif: RifActivity::default(),
+            rif_rx,
             search_tx,
             search_rx,
         }
@@ -232,6 +256,13 @@ impl App {
         }
     }
 
+    pub fn poll_rif(&mut self) {
+        // Drain to keep only the latest snapshot.
+        while let Ok(r) = self.rif_rx.try_recv() {
+            self.rif = r;
+        }
+    }
+
     pub fn copy_selected_to_clipboard(&mut self) {
         let Some(row) = self.results.get(self.result_selection) else {
             return;
@@ -284,6 +315,70 @@ impl App {
     }
 }
 
+/// Continuously poll every project's DuckDB for the top-suppressed
+/// entries and forward a merged snapshot. External `lethe search`
+/// writes update `cluster_suppression`/`entries.suppression`; we open
+/// read-only here, so concurrent agent calls and the TUI coexist.
+fn spawn_rif_poller(projects: Vec<ProjectEntry>) -> mpsc::Receiver<RifActivity> {
+    const POLL_EVERY: Duration = Duration::from_secs(3);
+    const PER_PROJECT_LIMIT: usize = 8;
+    const TOTAL_LIMIT: usize = 8;
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        // One cached read-only handle per project — reused across
+        // poll cycles so we don't churn DuckDB file handles every 3s.
+        // Dropped (and reopened next tick) on any error or when the
+        // file disappears (project deleted / not yet indexed).
+        let mut handles: Vec<Option<MemoryDb>> = (0..projects.len()).map(|_| None).collect();
+        loop {
+            let mut rows: Vec<RifActiveRow> = Vec::new();
+            for (i, p) in projects.iter().enumerate() {
+                let db_path = p.root.join(".lethe").join("index").join("lethe.duckdb");
+                if !db_path.exists() {
+                    handles[i] = None;
+                    continue;
+                }
+                if handles[i].is_none() {
+                    handles[i] = MemoryDb::open_with_mode(&db_path, true).ok();
+                }
+                let Some(db) = handles[i].as_ref() else {
+                    continue;
+                };
+                let Ok(active) = db.top_active_entries(PER_PROJECT_LIMIT) else {
+                    handles[i] = None;
+                    continue;
+                };
+                for ActiveEntry {
+                    content,
+                    suppression,
+                    step,
+                    ..
+                } in active
+                {
+                    rows.push(RifActiveRow {
+                        project_slug: p.slug.clone(),
+                        content,
+                        suppression,
+                        step,
+                    });
+                }
+            }
+            rows.sort_by(|a, b| {
+                b.suppression
+                    .partial_cmp(&a.suppression)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    .then_with(|| b.step.cmp(&a.step))
+            });
+            rows.truncate(TOTAL_LIMIT);
+            if tx.send(RifActivity { rows }).is_err() {
+                return;
+            }
+            thread::sleep(POLL_EVERY);
+        }
+    });
+    rx
+}
+
 /// Compute per-project memory counts off-thread. Opens each project's
 /// DuckDB file directly (no embeddings, no encoders) so first paint is
 /// fast even with many registered projects.
@@ -297,7 +392,7 @@ fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
             if !db_path.exists() {
                 continue;
             }
-            let count = MemoryDb::open(&db_path)
+            let count = MemoryDb::open_with_mode(&db_path, true)
                 .and_then(|db| db.count())
                 .map(|c| c.max(0) as usize)
                 .unwrap_or(0);

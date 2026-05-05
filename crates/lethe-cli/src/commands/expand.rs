@@ -18,7 +18,7 @@ pub fn run(root: Option<&str>, chunk_ids: &[String]) -> Result<i32> {
         }
         return Ok(1);
     }
-    let db = MemoryDb::open(&db_path)?;
+    let db = MemoryDb::open_with_mode(&db_path, true)?;
     let mut missing = false;
     for (idx, id) in chunk_ids.iter().enumerate() {
         if let Some(content) = db.get_content(id)? {

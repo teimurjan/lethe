@@ -296,7 +296,7 @@ fn write_seeded_entries(
 
 fn reindex(paths: &crate::paths::Paths) -> Result<markdown_store::ReindexCounts> {
     let cfg = load_config(&paths.config_path())?;
-    let store = open_store(&paths.index(), &cfg, true)?;
+    let store = open_store(&paths.index(), &cfg, true, false)?;
     let counts = markdown_store::reindex(&paths.memory(), &store)?;
     store.save()?;
     drop(store);

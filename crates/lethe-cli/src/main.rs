@@ -58,6 +58,15 @@ enum Cmd {
         /// Comma-separated project slugs or paths.
         #[arg(long)]
         projects: Option<String>,
+        /// Open the index read-only and skip the post-retrieve save.
+        /// Use this when several lethe processes need to share the
+        /// index concurrently (DuckDB allows many readers xor one
+        /// writer per file). Trade-off: retrieval-driven RIF state
+        /// (suppression scores, tier transitions, retrieval counts)
+        /// won't evolve for this query.
+        /// No effect with --all (cross-project search is already read-only).
+        #[arg(long)]
+        read_only: bool,
     },
     /// Print the full markdown section for one or more chunk ids.
     Expand {
@@ -185,11 +194,12 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             json_output,
             all,
             projects,
+            read_only,
         } => {
             if all || projects.is_some() {
                 commands::search::run_union(&query, top_k, json_output, projects.as_deref())
             } else {
-                commands::search::run_local(root, &query, top_k, json_output)
+                commands::search::run_local(root, &query, top_k, json_output, read_only)
             }
         }
         Cmd::Expand { chunk_ids } => commands::expand::run(root, &chunk_ids),

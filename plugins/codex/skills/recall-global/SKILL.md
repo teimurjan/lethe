@@ -21,6 +21,8 @@ Find memories relevant to: $ARGUMENTS
 
    Output is JSON with per-project attribution: `[{"id": "...", "content": "...", "score": 4.2, "project_slug": "...", "project_root": "..."}, ...]`.
 
+   `--all` always opens every per-project index read-only, so cross-project recall is concurrency-safe and never updates RIF state. No `--read-only` opt-out is needed here.
+
 2. **Filter.** Skip results that obviously don't match the user's question. A weak cross-encoder score (< 0) usually means a miss.
 
 3. **Expand.** For the top 2–3 hits, run `lethe --root <project_root> expand <id1> <id2> ...` (multi-arg, single call). Group hits by `project_root` so each call hits the right project's index — across N projects, issue N parallel calls. Output is plain text with `=== <id> ===` headers between chunks.

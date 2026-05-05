@@ -55,6 +55,10 @@ pub struct StoreConfig {
     pub confidence_threshold: f32,
     pub dedup_threshold: f32,
     pub rif: RifConfig,
+    /// Open the underlying DuckDB read-only and turn `save()` into a
+    /// no-op. Lets multiple processes share the same index for recall
+    /// without fighting over the writer lock.
+    pub read_only: bool,
 }
 
 impl Default for StoreConfig {
@@ -66,6 +70,7 @@ impl Default for StoreConfig {
             confidence_threshold: DEFAULT_CONFIDENCE_THRESHOLD,
             dedup_threshold: DEFAULT_DEDUP_THRESHOLD,
             rif: RifConfig::default(),
+            read_only: false,
         }
     }
 }
@@ -130,8 +135,10 @@ impl MemoryStore {
         config: StoreConfig,
     ) -> Result<Self, crate::Error> {
         let path = path.as_ref().to_path_buf();
-        std::fs::create_dir_all(&path)?;
-        let raw_db = MemoryDb::open(path.join("lethe.duckdb"))?;
+        if !config.read_only {
+            std::fs::create_dir_all(&path)?;
+        }
+        let raw_db = MemoryDb::open_with_mode(path.join("lethe.duckdb"), config.read_only)?;
         let step = raw_db.get_stat("step", "0")?.parse::<i64>().unwrap_or(0);
         let db = Arc::new(Mutex::new(raw_db));
 
@@ -554,7 +561,11 @@ impl MemoryStore {
     /// Persist mutable state. Embeddings are written incrementally
     /// during `add`/`delete` (DuckDB BLOB), so save() only flushes
     /// per-retrieve metadata and resets the structure-dirty flag.
+    /// No-op when the store was opened read-only.
     pub fn save(&self) -> Result<(), crate::Error> {
+        if self.config.read_only {
+            return Ok(());
+        }
         let mut inner = self.inner.lock().unwrap();
         inner.structure_dirty = false;
         let entries: Vec<&MemoryEntry> = inner.entries.values().collect();
@@ -976,5 +987,30 @@ mod tests {
         assert!(s.delete("a").unwrap());
         assert_eq!(s.size(), 1);
         assert!(!s.delete("a").unwrap());
+    }
+
+    #[test]
+    fn save_is_noop_when_read_only() {
+        // Seed an index in writable mode so the file exists.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("store");
+        let writer_cfg = StoreConfig {
+            dim: 16,
+            ..Default::default()
+        };
+        {
+            let s = MemoryStore::open(&path, None, None, writer_cfg).unwrap();
+            seed_entry(&s, "a", "alpha", mock_emb("alpha", 16)).unwrap();
+            s.save().unwrap();
+        }
+        // Reopen read-only; save() must succeed without trying to write.
+        let ro_cfg = StoreConfig {
+            dim: 16,
+            read_only: true,
+            ..Default::default()
+        };
+        let s = MemoryStore::open(&path, None, None, ro_cfg).unwrap();
+        assert_eq!(s.size(), 1);
+        s.save().unwrap();
     }
 }

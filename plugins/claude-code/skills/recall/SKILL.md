@@ -29,6 +29,8 @@ Find memories relevant to: $ARGUMENTS
 
    Output is JSON: `[{"id": "...", "content": "...", "score": 4.2}, ...]`.
 
+   By default this opens the project index read-write so retrieval-driven RIF state (suppression scores, tier promotion, retrieval counts) keeps evolving from your queries. If you hit a "Conflicting lock" error because another lethe process is writing to the same index (parallel sessions, an in-flight stop hook), retry once with `--read-only` — that opens the index read-only and skips the post-retrieve save, at the cost of not updating RIF state for that query.
+
 2. **Filter.** Skip results that obviously don't match the user's question. A weak cross-encoder score (< 0) usually means a miss.
 
 3. **Expand.** For the top 2–3 hits, run `lethe expand <id1> <id2> <id3>` (multi-arg, single call) to see the full markdown sections. Output is plain text with `=== <id> ===` headers between chunks. The short `content` shown in search results is often a single chunk, so expanding clarifies context.
