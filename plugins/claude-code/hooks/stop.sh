@@ -67,8 +67,12 @@ USER_PROMPT="${USER_PROMPT}
 ${TURN_BODY}
 --- TURN END ---"
 
+# Cap the nested `claude -p` call under the outer hook timeout (Claude
+# Code defaults to 60s for Stop) so a slow model never hangs the event.
+LETHE_SUMMARY_TIMEOUT_SECS="${LETHE_SUMMARY_TIMEOUT_SECS:-45}"
 SUMMARY="$(printf '%s' "${USER_PROMPT}" \
-  | claude -p --model haiku --append-system-prompt "${SYSTEM_PROMPT}" 2>/dev/null || true)"
+  | _with_timeout "${LETHE_SUMMARY_TIMEOUT_SECS}" \
+      claude -p --model haiku --append-system-prompt "${SYSTEM_PROMPT}" 2>/dev/null || true)"
 
 if [ -z "${SUMMARY}" ]; then
   _log "stop: summarizer produced no output"

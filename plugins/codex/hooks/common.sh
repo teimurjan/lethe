@@ -92,9 +92,52 @@ _json_encode_str() {
   printf '"%s"' "$s"
 }
 
+# Run "$@" with a wall-clock timeout in seconds. Prefers GNU `timeout` /
+# `gtimeout`; falls back to a bash watchdog so macOS without coreutils still
+# gets bounded execution. `<&0` is critical — bash auto-redirects async
+# (`&`) stdin to /dev/null in non-interactive shells, so the explicit
+# redirect is what keeps a piped summarizer prompt reaching the child.
+_with_timeout() {
+  local secs="$1"; shift
+  if command -v timeout >/dev/null 2>&1; then
+    timeout --kill-after=5 "${secs}" "$@"
+    return $?
+  fi
+  if command -v gtimeout >/dev/null 2>&1; then
+    gtimeout --kill-after=5 "${secs}" "$@"
+    return $?
+  fi
+  "$@" <&0 &
+  local pid=$!
+  (
+    sleep "${secs}"
+    kill -TERM "${pid}" 2>/dev/null && sleep 5 && kill -KILL "${pid}" 2>/dev/null
+  ) &
+  local watcher=$!
+  local rc=0
+  wait "${pid}" 2>/dev/null || rc=$?
+  kill "${watcher}" 2>/dev/null || true
+  wait "${watcher}" 2>/dev/null || true
+  return ${rc}
+}
+
 _resolve_git_root() {
   local dir="$1"
   [ -z "${dir}" ] && dir="$(pwd)"
+  local root
+  root="$(
+    cd "${dir}" 2>/dev/null && git worktree list --porcelain 2>/dev/null \
+    | awk '
+        /^worktree / { wt = substr($0, 10); bare = 0; next }
+        /^bare$/     { bare = 1; next }
+        /^$/         { if (wt && !bare) { print wt; wt = ""; exit } }
+        END          { if (wt && !bare) print wt }
+      '
+  )"
+  if [ -n "${root}" ]; then
+    printf '%s' "${root}"
+    return 0
+  fi
   ( cd "${dir}" 2>/dev/null && git rev-parse --show-toplevel 2>/dev/null ) || printf '%s' "${dir}"
 }
 
