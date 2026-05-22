@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.0](https://github.com/teimurjan/lethe/compare/lethe-v0.13.0...lethe-v0.14.0) (2026-05-22)
+
+
+### Features
+
+* Bg codex stop hook + unified worktree paths ([#36](https://github.com/teimurjan/lethe/issues/36)) ([a713a65](https://github.com/teimurjan/lethe/commit/a713a654bd6a6426e7e6c8895e82514acd216efc))
+
 ## [0.13.0](https://github.com/teimurjan/lethe/compare/lethe-v0.12.0...lethe-v0.13.0) (2026-05-05)
 
 
