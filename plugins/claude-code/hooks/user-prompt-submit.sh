@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # UserPromptSubmit — write today's `## Session HH:MM` heading on the first
-# user prompt of a session (one header per session_id, no empty sessions),
-# then surface a one-line hint pointing Claude at the recall skills.
+# user prompt of a session (one header per session_id, no empty sessions).
+# The recall skills decide for themselves when memory is relevant (via their
+# descriptions); we no longer inject a per-prompt hint.
 
 set -eu
 set -o pipefail
@@ -43,13 +44,4 @@ else
   fi
 fi
 
-# Only hint when the CLI is reachable AND there's at least one memory file.
-if [ -z "${LETHE_CLI}" ]; then
-  exit 0
-fi
-if ! ls "${LETHE_MEMORY_DIR}"/*.md >/dev/null 2>&1; then
-  exit 0
-fi
-
-printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"[lethe] Memory available — use the recall skill for this project, or recall-global for all registered projects."}}'
 exit 0
