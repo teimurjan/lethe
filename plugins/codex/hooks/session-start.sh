@@ -13,6 +13,14 @@ _read_stdin_with_timeout || true
 _lethe_init_paths
 _log "session-start: git_root=${LETHE_GIT_ROOT}"
 
+# Codex has no SessionEnd hook, so the per-session `.session-*.header`
+# sentinels written by user-prompt-submit.sh would accumulate forever.
+# Sweep any older than 24h here — well past any reasonable session lifetime,
+# so concurrent in-flight sessions are unaffected.
+if [ -d "${LETHE_DIR}" ]; then
+  find "${LETHE_DIR}" -maxdepth 1 -type f -name '.session-*.header' -mmin +1440 -delete 2>/dev/null || true
+fi
+
 TODAY="$(date +%Y-%m-%d)"
 TODAY_FILE="${LETHE_MEMORY_DIR}/${TODAY}.md"
 

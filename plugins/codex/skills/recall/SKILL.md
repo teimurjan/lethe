@@ -1,6 +1,6 @@
 ---
 name: recall
-description: Search memories from past Codex CLI sessions in the CURRENT project. Use when the user's question could benefit from historical context, past decisions, debugging notes, architectural choices, or prior conversations in this repo — and whenever you see a "[lethe] Memory available" hint. For cross-project recall, use the recall-global skill instead.
+description: Search memories from past Codex CLI sessions in the CURRENT project. Use when the user's question could benefit from historical context, past decisions, debugging notes, architectural choices, or prior conversations in this repo. For cross-project recall, use the recall-global skill instead.
 ---
 
 You are a memory retrieval agent for `lethe`, a markdown-first memory store with hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, and optional LLM enrichment.

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # UserPromptSubmit — append today's `## Session HH:MM` heading on the first
-# user prompt of a Codex session, then surface a one-line hint pointing the
-# agent at the recall skills.
+# user prompt of a Codex session. The recall skills decide for themselves when
+# memory is relevant (via their descriptions); we no longer inject a per-prompt
+# hint, which made Codex recall on every turn.
 
 set -eu
 set -o pipefail
@@ -40,16 +41,5 @@ else
   fi
 fi
 
-if [ -z "${LETHE_CLI}" ]; then
-  printf '{}'
-  exit 0
-fi
-if ! ls "${LETHE_MEMORY_DIR}"/*.md >/dev/null 2>&1; then
-  printf '{}'
-  exit 0
-fi
-
-# `additionalContext` injects into the model so Codex actually sees the hint
-# and invokes the recall skill. `systemMessage` would only render in the UI.
-printf '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","additionalContext":"[lethe] Memory available — use the recall skill for this project, or recall-global for all registered projects."}}'
+printf '{}'
 exit 0
