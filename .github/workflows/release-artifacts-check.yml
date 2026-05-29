@@ -22,14 +22,21 @@ jobs:
     name: verify release_artifacts/ for current version
     runs-on: ubuntu-latest
     steps:
-      - name: short-circuit for non-release-please PRs
+      - name: short-circuit for non-core release PRs
         id: gate
         run: |
-          if [[ "${{ github.head_ref }}" == release-please--* ]]; then
-            echo "release_pr=true" >> "$GITHUB_OUTPUT"
-          else
+          # Only the core `lethe` release PR ships binaries. Plugin-only
+          # releases (`lethe-plugins` package, branch suffix
+          # `--components--lethe-plugins`) carry no binaries, and regular
+          # PRs aren't release PRs at all — both no-op to success.
+          if [[ "${{ github.head_ref }}" != release-please--* ]]; then
             echo "release_pr=false" >> "$GITHUB_OUTPUT"
             echo "Not a release-please PR; check is a no-op."
+          elif [[ "${{ github.head_ref }}" == *--components--lethe-plugins ]]; then
+            echo "release_pr=false" >> "$GITHUB_OUTPUT"
+            echo "Plugins-only release PR; no binaries required — check is a no-op."
+          else
+            echo "release_pr=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: actions/checkout@v4
         if: steps.gate.outputs.release_pr == 'true'
