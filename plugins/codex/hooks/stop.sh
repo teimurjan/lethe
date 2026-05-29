@@ -20,10 +20,16 @@ source "${SCRIPT_DIR}/common.sh"
 _read_stdin_with_timeout || true
 _lethe_init_paths
 
-# Recursion guard: Codex sets `stop_hook_active=true` in the stdin payload
-# when the Stop event was triggered by a hook (e.g. our own `claude -p`
-# summarizer's nested Stop hook would re-fire this). Bail before we spawn
-# another summarizer.
+# Recursion guard: bail when this hook fired from inside our own summarizer.
+# Two signals because Codex and Claude expose recursion differently:
+#  - LETHE_STOP_HOOK_ACTIVE — env var we set before spawning `codex exec` /
+#    `claude -p` below. Inherited by the nested CLI's own Stop hook. This is
+#    the one that catches Codex, which doesn't pass `stop_hook_active`.
+#  - stop_hook_active — Claude Code's stdin field, set on hook-triggered
+#    Stop events. Kept for the `claude -p` fallback path.
+if [ "${LETHE_STOP_HOOK_ACTIVE:-0}" = "1" ]; then
+  exit 0
+fi
 STOP_ACTIVE="$(_json_val stop_hook_active || true)"
 if [ "${STOP_ACTIVE}" = "true" ] || [ "${STOP_ACTIVE}" = "True" ]; then
   exit 0
@@ -110,7 +116,7 @@ ${TURN_BODY}
       if [ "${HAVE_CODEX}" -eq 1 ]; then
         CODEX_OUT="$(mktemp -t lethe-codex-stop.XXXXXX)"
         printf '%s\n\n%s' "${SYSTEM_PROMPT}" "${USER_PROMPT}" \
-          | _with_timeout "${LETHE_SUMMARY_TIMEOUT_SECS_EFF}" \
+          | LETHE_STOP_HOOK_ACTIVE=1 _with_timeout "${LETHE_SUMMARY_TIMEOUT_SECS_EFF}" \
               codex exec --skip-git-repo-check --output-last-message "${CODEX_OUT}" - \
               >/dev/null 2>&1 || true
         [ -s "${CODEX_OUT}" ] && SUMMARY="$(cat "${CODEX_OUT}")"
@@ -119,7 +125,7 @@ ${TURN_BODY}
 
       if [ -z "${SUMMARY}" ] && [ "${HAVE_CLAUDE}" -eq 1 ]; then
         SUMMARY="$(printf '%s' "${USER_PROMPT}" \
-          | _with_timeout "${LETHE_SUMMARY_TIMEOUT_SECS_EFF}" \
+          | LETHE_STOP_HOOK_ACTIVE=1 _with_timeout "${LETHE_SUMMARY_TIMEOUT_SECS_EFF}" \
               claude -p --model haiku --append-system-prompt "${SYSTEM_PROMPT}" 2>/dev/null || true)"
       fi
     fi
