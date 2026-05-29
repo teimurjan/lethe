@@ -1,5 +1,6 @@
 {
   "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "separate-pull-requests": true,
   "packages": {
     ".": {
       "release-type": "simple",
@@ -32,27 +33,34 @@
         },
         {
           "type": "json",
-          "path": ".claude-plugin/marketplace.json",
+          "path": "crates/lethe-node/package.json",
+          "jsonpath": "$.version"
+        }
+      ]
+    },
+    "plugins": {
+      "release-type": "simple",
+      "package-name": "lethe-plugins",
+      "component": "lethe-plugins",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "/.claude-plugin/marketplace.json",
           "jsonpath": "$.metadata.version"
         },
         {
           "type": "json",
-          "path": ".claude-plugin/marketplace.json",
+          "path": "/.claude-plugin/marketplace.json",
           "jsonpath": "$.plugins[*].version"
         },
         {
           "type": "json",
-          "path": "plugins/claude-code/.claude-plugin/plugin.json",
+          "path": "/plugins/claude-code/.claude-plugin/plugin.json",
           "jsonpath": "$.version"
         },
         {
           "type": "json",
-          "path": "plugins/codex/.codex-plugin/plugin.json",
-          "jsonpath": "$.version"
-        },
-        {
-          "type": "json",
-          "path": "crates/lethe-node/package.json",
+          "path": "/plugins/codex/.codex-plugin/plugin.json",
           "jsonpath": "$.version"
         }
       ]

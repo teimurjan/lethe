@@ -25,6 +25,9 @@ permissions:
 
 jobs:
   publish:
+    # Skip plugin-only releases: `lethe-plugins-v*` tags carry no binaries.
+    # Manual workflow_dispatch always runs (operator override).
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'lethe-v') }}
     name: publish to PyPI
     runs-on: ubuntu-latest
     environment:

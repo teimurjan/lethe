@@ -25,6 +25,9 @@ permissions:
 
 jobs:
   homebrew:
+    # Skip plugin-only releases: `lethe-plugins-v*` tags carry no binaries.
+    # Manual workflow_dispatch always runs (operator override).
+    if: ${{ github.event_name != 'release' || startsWith(github.event.release.tag_name, 'lethe-v') }}
     name: update homebrew tap
     runs-on: ubuntu-latest
     steps:
