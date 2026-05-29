@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.14.1](https://github.com/teimurjan/lethe/compare/lethe-v0.14.0...lethe-v0.14.1) (2026-05-29)
+
+
+### Bug Fixes
+
+* **plugins:** Drop per-prompt recall hint ([#39](https://github.com/teimurjan/lethe/issues/39)) ([9ad1fb3](https://github.com/teimurjan/lethe/commit/9ad1fb35e2633066277091ef452cbd84af1fea8d))
+
 ## [0.14.0](https://github.com/teimurjan/lethe/compare/lethe-v0.13.0...lethe-v0.14.0) (2026-05-22)
 
 
