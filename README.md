@@ -24,12 +24,11 @@ Per-project memory in `.lethe/memory/YYYY-MM-DD.md`, recall via skill + session-
 ### Codex CLI
 
 ```bash
-brew tap teimurjan/lethe && brew install lethe
-git clone https://github.com/teimurjan/lethe /tmp/lethe
-bash /tmp/lethe/plugins/codex/install.sh --auto-config
+brew tap teimurjan/lethe && brew install lethe   # lethe + lethe-codex binaries
+codex plugin marketplace add teimurjan/lethe
 ```
 
-See [plugins/codex/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/codex/README.md).
+Then run `codex`, open `/plugins`, and install **lethe** — it wires the hooks and the `recall` / `recall-global` skills into Codex automatically. See [plugins/codex/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/codex/README.md).
 
 ### CLI
 

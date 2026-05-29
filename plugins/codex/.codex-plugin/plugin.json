@@ -8,6 +8,8 @@
   "homepage": "https://github.com/teimurjan/lethe",
   "repository": "https://github.com/teimurjan/lethe",
   "license": "MIT",
+  "hooks": "./hooks/hooks.json",
+  "skills": "./skills/",
   "keywords": [
     "memory",
     "rif",

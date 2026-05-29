@@ -1,0 +1,22 @@
+{
+  "name": "lethe",
+  "interface": {
+    "displayName": "lethe"
+  },
+  "plugins": [
+    {
+      "name": "lethe",
+      "version": "0.15.0",
+      "description": "Persistent memory across Codex CLI sessions — hybrid BM25+dense retrieval, clustered retrieval-induced forgetting.",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}
