@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/teimurjan/lethe/compare/lethe-plugins-v0.15.0...lethe-plugins-v0.16.0) (2026-05-29)
+
+
+### Features
+
+* **codex:** Marketplace install, drop install.sh ([#43](https://github.com/teimurjan/lethe/issues/43)) ([179eb2c](https://github.com/teimurjan/lethe/commit/179eb2cb8c93d1a2067d2023bc4bcbdc83565b75))
+
 ## [0.15.0](https://github.com/teimurjan/lethe/compare/lethe-plugins-v0.14.0...lethe-plugins-v0.15.0) (2026-05-29)
 
 
