@@ -7,6 +7,7 @@
       "package-name": "lethe",
       "component": "lethe",
       "changelog-path": "CHANGELOG.md",
+      "exclude-paths": ["plugins", ".agents"],
       "extra-files": [
         "research_playground/lethe_reference/lethe/__init__.py",
         "research_playground/lethe_reference/pyproject.toml",
@@ -62,6 +63,11 @@
           "type": "json",
           "path": "/plugins/codex/.codex-plugin/plugin.json",
           "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "/.agents/plugins/marketplace.json",
+          "jsonpath": "$.plugins[*].version"
         }
       ]
     }

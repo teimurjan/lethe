@@ -5,17 +5,14 @@ Persistent memory across [Codex CLI](https://developers.openai.com/codex) sessio
 ## Install
 
 ```bash
-# 1. Install the lethe binary
-brew tap teimurjan/lethe && brew install lethe   # or: cargo install lethe-cli
+# 1. Install the lethe binaries
+brew tap teimurjan/lethe && brew install lethe   # or: cargo install lethe-cli lethe-codex
 
-# 2. Wire the hooks into Codex
-git clone https://github.com/teimurjan/lethe /tmp/lethe   # or use a release tarball
-bash /tmp/lethe/plugins/codex/install.sh --auto-config
+# 2. Add the marketplace, then install from Codex
+codex plugin marketplace add teimurjan/lethe
 ```
 
-`install.sh` copies the hooks to `~/.codex/lethe/hooks/` and the skills to `~/.codex/skills/{recall,recall-global}/` (auto-discovered by Codex alongside the built-in `~/.codex/skills/.system/` set — no config registration). With `--auto-config`, it also appends a marked block to `~/.codex/config.toml` wiring the hooks. Re-running the installer replaces the existing block and skill directories, so updates are idempotent.
-
-Without `--auto-config` the script prints the snippet for you to paste manually.
+Then run `codex`, open `/plugins`, and install **lethe**. Codex reads the marketplace manifest at [`.agents/plugins/marketplace.json`](https://github.com/teimurjan/lethe/blob/main/.agents/plugins/marketplace.json) and wires the hooks (`hooks/hooks.json`) and the `recall` / `recall-global` skills automatically — no `config.toml` editing. On first run Codex asks you to review and trust the plugin's hooks before they fire. `codex plugin marketplace upgrade teimurjan` pulls updates.
 
 After install, a `.lethe/` directory will appear in each project's git root on first use:
 
@@ -52,7 +49,7 @@ lethe seed --days 30 --source codex --dry-run   # preview only
 ## Requirements
 
 - `lethe`, `lethe-codex` (and `lethe-claude-code` if you also use the Claude Code plugin) binaries on PATH. Install with `brew tap teimurjan/lethe && brew install lethe` or `cargo install lethe-cli lethe-codex`.
-- Codex CLI with hooks enabled (`[features].codex_hooks = true`, set automatically by `--auto-config`).
+- Codex CLI. Hooks are enabled by default; on first run Codex prompts you to review and trust the plugin's hook definitions before they fire (re-prompts whenever they change). Disable globally with `[features] hooks = false`.
 - One of `codex` (preferred — uses your Codex auth) or `claude` (fallback) on PATH for the Stop hook summarizer. Without either, Stop still writes the anchor + reindexes; just no bullet summary.
 
 ## Debugging
