@@ -76,6 +76,18 @@ CREATE TABLE IF NOT EXISTS entry_embeddings (
     vector BLOB NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS transcript_manifest (
+    -- Per-transcript freshness state for incremental transcript
+    -- indexing. A file is 'dirty' (needs reparsing) when its (mtime,
+    -- size) diverge from the stored row. Kept in the same DuckDB so the
+    -- manifest write is atomic with the entry inserts it accompanies.
+    path TEXT PRIMARY KEY,
+    mtime_ns BIGINT NOT NULL,
+    size_bytes BIGINT NOT NULL,
+    turns_indexed BIGINT NOT NULL DEFAULT 0,
+    last_indexed TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_entries_tier ON entries(tier);
 CREATE INDEX IF NOT EXISTS idx_entries_hash ON entries(content_hash);
 CREATE INDEX IF NOT EXISTS idx_rescue_entry ON rescue_cache(entry_id);
@@ -143,10 +155,7 @@ impl MemoryDb {
     /// share the same file (DuckDB allows one writer xor many readers
     /// per file). The recall paths use this so parallel `lethe search`
     /// invocations don't fight over the writer lock.
-    pub fn open_with_mode(
-        path: impl AsRef<Path>,
-        read_only: bool,
-    ) -> Result<Self, crate::Error> {
+    pub fn open_with_mode(path: impl AsRef<Path>, read_only: bool) -> Result<Self, crate::Error> {
         let path = path.as_ref().to_path_buf();
         let legacy = path.with_file_name("lethe.db");
         if legacy.exists() && !path.exists() {
@@ -301,6 +310,45 @@ impl MemoryDb {
         self.conn.execute(
             "INSERT OR REPLACE INTO stats (key, value) VALUES (?, ?)",
             params![key, value],
+        )?;
+        Ok(())
+    }
+
+    // -------- transcript manifest --------
+
+    /// Load the full freshness manifest as `path -> (mtime_ns, size_bytes)`.
+    /// Cheap read used to decide which transcripts need reindexing before
+    /// a search.
+    pub fn get_manifest(
+        &self,
+    ) -> Result<std::collections::HashMap<String, (i64, i64)>, crate::Error> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT path, mtime_ns, size_bytes FROM transcript_manifest")?;
+        let mut rows = stmt.query([])?;
+        let mut out = std::collections::HashMap::new();
+        while let Some(r) = rows.next()? {
+            let path: String = r.get(0)?;
+            let mtime: i64 = r.get(1)?;
+            let size: i64 = r.get(2)?;
+            out.insert(path, (mtime, size));
+        }
+        Ok(out)
+    }
+
+    /// Record that `path` has been indexed at the given (mtime, size).
+    pub fn upsert_manifest_row(
+        &self,
+        path: &str,
+        mtime_ns: i64,
+        size_bytes: i64,
+        turns_indexed: i64,
+    ) -> Result<(), crate::Error> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO transcript_manifest \
+             (path, mtime_ns, size_bytes, turns_indexed, last_indexed) \
+             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            params![path, mtime_ns, size_bytes, turns_indexed],
         )?;
         Ok(())
     }
@@ -635,6 +683,21 @@ mod tests {
         assert_eq!(db.get_stat("step", "0").unwrap(), "0");
         db.set_stat("step", "42").unwrap();
         assert_eq!(db.get_stat("step", "0").unwrap(), "42");
+    }
+
+    #[test]
+    fn manifest_round_trip_and_upsert() {
+        let dir = tempdir().unwrap();
+        let db = MemoryDb::open(dir.path().join("lethe.duckdb")).unwrap();
+        assert!(db.get_manifest().unwrap().is_empty());
+        db.upsert_manifest_row("/t/a.jsonl", 111, 222, 3).unwrap();
+        let m = db.get_manifest().unwrap();
+        assert_eq!(m.get("/t/a.jsonl"), Some(&(111, 222)));
+        // Upsert overwrites (grown file).
+        db.upsert_manifest_row("/t/a.jsonl", 333, 444, 5).unwrap();
+        let m = db.get_manifest().unwrap();
+        assert_eq!(m.get("/t/a.jsonl"), Some(&(333, 444)));
+        assert_eq!(m.len(), 1);
     }
 
     #[test]

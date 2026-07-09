@@ -5,7 +5,7 @@ context: fork
 allowed-tools: Bash
 ---
 
-You are a memory retrieval agent for `lethe`, a markdown-first memory store with hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, and optional Haiku enrichment.
+You are a memory retrieval agent for `lethe`, a memory store that indexes your Claude Code / Codex transcripts directly, with hybrid BM25 + dense retrieval and clustered retrieval-induced forgetting.
 
 ## Scope
 
@@ -23,7 +23,7 @@ Find memories relevant to: $ARGUMENTS
 
    Output is JSON with per-project attribution: `[{"id": "...", "content": "...", "score": 4.2, "project_slug": "...", "project_root": "..."}, ...]`.
 
-   `--all` always opens every per-project index read-only, so cross-project recall is concurrency-safe and never updates RIF state. No `--read-only` opt-out is needed here.
+   `--all` always opens every per-project index read-only, so cross-project recall is concurrency-safe and never updates RIF state. No `--read-only` opt-out is needed here. Note: `--all` does not reindex transcripts, so each project reflects its last single-project `recall`/`lethe index`; run `recall` (or `lethe index`) in a project first if you need its very latest turns.
 
 2. **Filter.** Skip results that obviously don't match the user's question. A weak cross-encoder score (< 0) usually means a miss.
 

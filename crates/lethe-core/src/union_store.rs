@@ -75,7 +75,9 @@ impl UnionStore {
         let handles: Vec<UnionProject> = projects
             .into_par_iter()
             .filter_map(|entry| {
-                let store_path = entry.root.join(".lethe").join("index");
+                let store_path = crate::registry::registry_dir()
+                    .join("index")
+                    .join(&entry.slug);
                 if !store_path.join("lethe.duckdb").exists() {
                     return None;
                 }
@@ -181,8 +183,13 @@ impl UnionStore {
         // pool. If no cross-encoder is wired (test path), keep gather
         // scores as-is.
         if let Some(xenc) = self.cross_encoder.as_ref() {
-            let pairs: Vec<(&str, &str)> =
-                pool.iter().map(|h| (query, h.content.as_str())).collect();
+            // Strip anchor/heading lines so the cross-encoder scores the
+            // actual turn text (matches single-project rerank).
+            let stripped: Vec<String> = pool
+                .iter()
+                .map(|h| crate::markdown_store::embed_content(&h.content))
+                .collect();
+            let pairs: Vec<(&str, &str)> = stripped.iter().map(|c| (query, c.as_str())).collect();
             let scores = xenc.predict(&pairs)?;
             for (hit, score) in pool.iter_mut().zip(scores) {
                 hit.score = score;

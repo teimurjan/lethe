@@ -1,4 +1,9 @@
-//! `lethe reset` — wipe `.lethe/index/` (markdown stays).
+//! `lethe reset` — wipe this project's global index directory.
+//!
+//! Transcripts under `~/.claude` / `~/.codex` are untouched, so the next
+//! `lethe index` / `lethe search` rebuilds from them. This is also the
+//! way to prune turns left behind by transcript compaction (a full
+//! rebuild only re-adds turns still present in the current transcripts).
 
 use anyhow::Result;
 
@@ -8,9 +13,9 @@ pub fn run(root: Option<&str>, yes: bool) -> Result<i32> {
     let paths = resolve(root);
     if !yes {
         eprintln!(
-            "Would delete {} (markdown in {} is preserved). Pass --yes to confirm.",
-            paths.index().display(),
-            paths.memory().display()
+            "Would delete {} (transcripts are untouched; rebuild with `lethe index`). \
+             Pass --yes to confirm.",
+            paths.index().display()
         );
         return Ok(1);
     }

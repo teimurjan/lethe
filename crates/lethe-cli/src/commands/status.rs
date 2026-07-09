@@ -18,7 +18,7 @@ struct StatusEmpty<'a> {
 #[derive(Serialize)]
 struct StatusFull {
     root: String,
-    memory_dir: String,
+    index_dir: String,
     initialized: bool,
     total_entries: i64,
     tiers: BTreeMap<String, i64>,
@@ -53,7 +53,7 @@ pub fn run(root: Option<&str>) -> Result<i32> {
 
     let payload = StatusFull {
         root: paths.root.to_string_lossy().into_owned(),
-        memory_dir: paths.memory().to_string_lossy().into_owned(),
+        index_dir: paths.index().to_string_lossy().into_owned(),
         initialized: true,
         total_entries,
         tiers,

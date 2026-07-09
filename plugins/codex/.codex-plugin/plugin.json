@@ -1,20 +1,19 @@
 {
   "name": "lethe",
   "version": "0.16.0",
-  "description": "Persistent memory across Codex CLI sessions. Markdown-first storage, hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting.",
+  "description": "Persistent memory across Codex CLI sessions. Indexes your transcripts directly, hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting.",
   "author": {
     "name": "Teimur Gasanov"
   },
   "homepage": "https://github.com/teimurjan/lethe",
   "repository": "https://github.com/teimurjan/lethe",
   "license": "MIT",
-  "hooks": "./hooks/hooks.json",
   "skills": "./skills/",
   "keywords": [
     "memory",
     "rif",
     "hybrid-retrieval",
-    "markdown",
+    "transcripts",
     "codex"
   ]
 }

@@ -688,14 +688,19 @@ impl MemoryStore {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        // Build (id_str, content_str) pairs without copying ids.
-        let pairs: Vec<(&str, &str)> = ids
+        // Build (id, stripped_content) pairs. `embed_content` drops the
+        // anchor + heading lines so the cross-encoder scores the actual
+        // turn text, matching what the bi-encoder embedded. Idempotent
+        // for entries already stored stripped (legacy markdown).
+        let pairs: Vec<(String, String)> = ids
             .iter()
             .filter_map(|eid| {
-                inner
-                    .entries
-                    .get(eid)
-                    .map(|e| (eid.as_str(), e.content.as_str()))
+                inner.entries.get(eid).map(|e| {
+                    (
+                        eid.clone(),
+                        crate::markdown_store::embed_content(&e.content),
+                    )
+                })
             })
             .collect();
         let Some(xenc) = &self.cross_encoder else {
@@ -704,15 +709,15 @@ impl MemoryStore {
             return Ok(pairs
                 .into_iter()
                 .enumerate()
-                .map(|(i, (id, _))| (id.to_owned(), -(i as f32)))
+                .map(|(i, (id, _))| (id, -(i as f32)))
                 .collect());
         };
-        let xpairs: Vec<(&str, &str)> = pairs.iter().map(|(_, c)| (query, *c)).collect();
+        let xpairs: Vec<(&str, &str)> = pairs.iter().map(|(_, c)| (query, c.as_str())).collect();
         let scores = xenc.predict(&xpairs)?;
         let mut scored: Vec<(String, f32)> = pairs
             .iter()
             .zip(scores)
-            .map(|((eid, _), s)| ((*eid).to_owned(), s))
+            .map(|((eid, _), s)| (eid.clone(), s))
             .collect();
         scored.sort_by(|(a_id, a), (b_id, b)| {
             b.partial_cmp(a)
@@ -740,7 +745,7 @@ impl Inner {
             .map(|eid| {
                 self.entries
                     .get(eid)
-                    .map(|e| tokenize_bm25(&e.content))
+                    .map(|e| tokenize_bm25(&crate::markdown_store::embed_content(&e.content)))
                     .unwrap_or_default()
             })
             .collect();

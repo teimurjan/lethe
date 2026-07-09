@@ -36,10 +36,8 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Reindex markdown memory files.
+    /// Index this project's agent transcripts into the store.
     Index {
-        /// Override memory directory.
-        dir: Option<String>,
         #[arg(long)]
         json_output: bool,
         #[arg(long)]
@@ -85,44 +83,15 @@ enum Cmd {
         key: Option<String>,
         value: Option<String>,
     },
-    /// Delete .lethe/index/ (markdown preserved).
+    /// Delete this project's global index (transcripts are untouched).
     Reset {
         #[arg(long)]
         yes: bool,
-    },
-    /// Run Haiku enrichment over scanned chunks (delegates to Python).
-    Enrich {
-        dir: Option<String>,
-        #[arg(long, default_value = "claude-haiku-4-5")]
-        model: String,
-        #[arg(long, default_value_t = 5)]
-        concurrency: usize,
     },
     /// Manage the global project registry.
     Projects {
         #[command(subcommand)]
         action: ProjectsCmd,
-    },
-    /// Backfill memories from past Claude Code / Codex transcripts for the
-    /// current project. Idempotent — re-running skips sessions already seeded.
-    Seed {
-        /// Lookback window in days (mtime filter on transcripts).
-        #[arg(long, default_value_t = 7)]
-        days: u64,
-        /// Which agent's transcripts to scan.
-        #[arg(long, default_value = "all", value_parser = ["all", "claude-code", "codex"])]
-        source: String,
-        /// List discovered sessions without summarizing or writing.
-        #[arg(long)]
-        dry_run: bool,
-        /// Skip the Haiku summarizer and store a raw last-prompt snippet instead.
-        #[arg(long)]
-        no_summarize: bool,
-        /// Cap the number of sessions processed in this run.
-        #[arg(long)]
-        max_sessions: Option<usize>,
-        #[arg(long)]
-        json_output: bool,
     },
     /// Interactive TUI. Implicit when `lethe` is run with no args in a terminal.
     Tui,
@@ -184,10 +153,9 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
     };
     match cmd {
         Cmd::Index {
-            dir,
             json_output,
             no_register,
-        } => commands::index::run(root, dir.as_deref(), json_output, no_register),
+        } => commands::index::run(root, json_output, no_register),
         Cmd::Search {
             query,
             top_k,
@@ -208,29 +176,7 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
             commands::config::run(root, &action, key.as_deref(), value.as_deref())
         }
         Cmd::Reset { yes } => commands::reset::run(root, yes),
-        Cmd::Enrich { .. } => {
-            eprintln!(
-                "lethe does not implement `enrich` in v1 — run the legacy Python `lethe enrich` instead."
-            );
-            Ok(2)
-        }
         Cmd::Projects { action } => commands::projects::run(action),
-        Cmd::Seed {
-            days,
-            source,
-            dry_run,
-            no_summarize,
-            max_sessions,
-            json_output,
-        } => commands::seed::run(
-            root,
-            days,
-            &source,
-            dry_run,
-            no_summarize,
-            max_sessions,
-            json_output,
-        ),
         Cmd::Tui => commands::tui::run(),
     }
 }

@@ -1,9 +1,10 @@
 # lethe — agent guide
 
 Self-improving memory store for LLM agents. BM25 + dense vector hybrid
-retrieval with cross-encoder reranking, clustered retrieval-induced
-forgetting (RIF), and optional LLM write-time enrichment. Ships as a
-single Rust binary (`lethe`) plus PyPI / npm bindings.
+retrieval with cross-encoder reranking and clustered retrieval-induced
+forgetting (RIF). Indexes agent transcripts (Claude Code / Codex) directly
+— no capture hooks, no summarization. Ships as a single Rust binary (`lethe`)
+plus PyPI / npm bindings.
 
 ## stack
 
@@ -11,12 +12,12 @@ single Rust binary (`lethe`) plus PyPI / npm bindings.
   `rust-toolchain.toml`.
   - `lethe-core` — library: tokenize, bm25, faiss_flat, rrf, dedup, rif,
     kmeans, encoders (ONNX via `ort`), DuckDB persistence, npz reader,
-    memory_store, union_store, markdown_store.
+    memory_store, union_store, markdown_store, transcript_store.
   - `lethe-cli` — `lethe` binary (clap; embeds the TUI).
   - `lethe-tui` — ratatui library called from the CLI on no-arg invocation.
   - `lethe-py` — PyO3 binding → PyPI `lethe-memory`.
   - `lethe-node` — napi-rs binding → npm `lethe`.
-  - `lethe-claude-code` — Claude Code adapter binary (transcript parsing).
+  - `lethe-claude-code` / `lethe-codex` — adapter binaries (transcript drill-down).
   - `lethe-benchmark` — internal parity bench helper (`publish = false`).
 - **DuckDB** for entry metadata + embedding BLOBs (single source of truth).
 - **ONNX Runtime** (via `ort`) for the bi-encoder + cross-encoder.
@@ -53,9 +54,9 @@ uv run python research_playground/rust_migration/latency.py --compare
 
 # CLI surface (the `lethe` binary)
 lethe                                    # no args → TUI (in a terminal)
-lethe index                              # reindex .lethe/memory
-lethe search "query" --top-k 5
-lethe search "query" --all --top-k 5     # all registered projects (DuckDB ATTACH)
+lethe index                              # index this project's transcripts
+lethe search "query" --top-k 5           # reindexes changed transcripts first
+lethe search "query" --all --top-k 5     # all registered projects (per-project read-only)
 lethe projects list|add|remove|prune
 lethe expand <chunk-id> [<chunk-id> ...]
 lethe status

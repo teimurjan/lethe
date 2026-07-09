@@ -47,6 +47,12 @@ pub fn run_local(
     let paths = resolve(root);
     let cfg = load_config(&paths.config_path())?;
     let store = open_store(&paths.index(), &cfg, true, read_only)?;
+    // Freshen from any changed transcripts before retrieving. Skipped in
+    // read-only mode (the lock-contention fallback): retrieval then runs
+    // against whatever was last indexed.
+    if !read_only {
+        super::transcript_index::ensure_fresh(&store, &paths.root)?;
+    }
     let hits = store.retrieve(query, top_k)?;
     if !read_only {
         store.save()?;
@@ -115,13 +121,8 @@ pub fn run_union(
         return Ok(1);
     }
 
-    // Pull encoder names from the first project that has a config.toml.
-    let cfg_root = entries
-        .iter()
-        .map(|e| e.root.clone())
-        .find(|r| r.join(".lethe").join("config.toml").exists())
-        .unwrap_or_else(|| entries[0].root.clone());
-    let cfg = load_config(&cfg_root.join(".lethe").join("config.toml"))?;
+    // Encoder names come from the single global config.
+    let cfg = load_config(&registry::registry_dir().join("config.toml"))?;
     let bi = Arc::new(BiEncoder::from_repo(&cfg.bi_encoder)?);
     let cross = Arc::new(CrossEncoder::from_repo(&cfg.cross_encoder)?);
     let store_cfg = StoreConfig {
