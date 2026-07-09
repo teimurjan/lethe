@@ -43,7 +43,7 @@ use ratatui::Terminal;
 use std::io;
 use std::time::Duration;
 
-use crate::app::{App, Focus};
+use crate::app::App;
 
 /// Run the TUI to completion. Owns the terminal lifecycle so callers
 /// only need to handle the returned `Result`.
@@ -96,61 +96,35 @@ fn run_event_loop<B: ratatui::backend::Backend>(
 }
 
 /// Returns `true` when the app wants to exit.
+///
+/// No focus panes: typing always edits the search box; arrows move the
+/// project list (while browsing projects) or the memory list; Esc goes
+/// back; Ctrl+C copies the highlighted memory; Ctrl+D deletes the
+/// highlighted project; Ctrl+Q quits.
 fn handle_key(app: &mut App, key: KeyEvent) -> bool {
     match (key.code, key.modifiers) {
-        // Quit.
-        (KeyCode::Char('q' | 'c'), KeyModifiers::CONTROL) => return true,
+        (KeyCode::Char('q'), KeyModifiers::CONTROL) => return true,
 
-        // Submit search.
-        (KeyCode::Enter, _) => {
-            if matches!(app.focus, Focus::Search) {
-                app.submit_search();
-            } else if matches!(app.focus, Focus::Results) {
-                // Treat enter on a result as "show detail" — already
-                // shown via live-expand, this is idempotent.
-                app.refresh_detail_from_highlight();
-            } else if matches!(app.focus, Focus::Projects) {
-                app.enter_selected_project();
-            }
-        }
+        // Copy the highlighted memory.
+        (KeyCode::Char('c'), KeyModifiers::CONTROL) => app.copy_selected_to_clipboard(),
 
-        // Esc — close detail or pop scope or refocus search.
+        // Delete the highlighted project (project list only; press twice).
+        (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.request_or_confirm_delete(),
+
+        (KeyCode::Enter, _) => app.on_enter(),
         (KeyCode::Esc, _) => app.escape(),
-
-        // Tab and Shift+Tab cycle focus.
-        (KeyCode::Tab, _) => app.cycle_focus(true),
-        (KeyCode::BackTab, _) => app.cycle_focus(false),
-
-        // Direct focus shortcuts.
-        (KeyCode::Char('l'), KeyModifiers::CONTROL) => app.focus = Focus::Search,
-        (KeyCode::Char('p'), KeyModifiers::CONTROL) => app.focus = Focus::Projects,
-        (KeyCode::Char('r'), KeyModifiers::CONTROL) => app.focus = Focus::Results,
 
         (KeyCode::Up, _) => app.arrow(-1),
         (KeyCode::Down, _) => app.arrow(1),
 
-        // Yank: copy the selected result's content to the clipboard.
-        // Must precede the type-anywhere arm below so `y` doesn't get
-        // appended to the search box when Results is focused.
-        (KeyCode::Char('y'), m)
-            if (m - KeyModifiers::SHIFT).is_empty() && matches!(app.focus, Focus::Results) =>
-        {
-            app.copy_selected_to_clipboard();
-        }
-
-        // Editing in the search input.
-        (KeyCode::Backspace, _) if matches!(app.focus, Focus::Search) => {
+        (KeyCode::Backspace, _) => {
+            app.pending_delete = None;
             app.search_input.pop();
         }
+        // Typing always goes to the search box. CONTROL/ALT combos are
+        // terminal shortcuts (handled above or ignored), not text.
         (KeyCode::Char(c), m) if (m - KeyModifiers::SHIFT).is_empty() => {
-            // Type-anywhere refocus. Skip when CONTROL/ALT/SUPER are
-            // held — those are terminal shortcuts (Ctrl+D, Alt+W, …)
-            // that the user did not mean to type into the search box.
-            // Specific Ctrl/Alt combos we care about (Ctrl+Q, Ctrl+L,
-            // …) match earlier arms.
-            if !matches!(app.focus, Focus::Search) {
-                app.focus = Focus::Search;
-            }
+            app.pending_delete = None;
             app.search_input.push(c);
         }
 

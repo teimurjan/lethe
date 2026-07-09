@@ -7,9 +7,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::app::{App, Focus, Scope, Stats, ToastKind};
+use crate::app::{App, Scope, Stats, ToastKind};
 
-const FOOTER: &str = "↑/↓ nav · ⏎ search/open · esc back · tab focus · y copy · ^q quit";
+const FOOTER: &str =
+    "type to search · ↑/↓ browse · ⏎ open · esc back · ^c copy · ^d delete project · ^q quit";
 const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
@@ -60,8 +61,7 @@ fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 
 fn draw_projects(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let title = format!("Projects ({})", app.projects.len());
-    let active = matches!(app.focus, Focus::Projects);
-    let block = pane_block(&title, active);
+    let block = pane_block(&title, app.nav_projects());
 
     let current_slug = match &app.scope {
         Scope::Single(e) => Some(e.slug.as_str()),
@@ -101,30 +101,29 @@ fn draw_results_pane(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 }
 
 fn draw_search_input(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let active = matches!(app.focus, Focus::Search);
+    // Typing always targets the box, so the cursor is always shown.
     let prompt = format!("{} ▸ ", app.scope.label());
     let body = Line::from(vec![
         Span::styled(prompt, Style::default().fg(Color::Cyan)),
         Span::raw(&app.search_input),
-        Span::styled(
-            if active { "█" } else { " " },
-            Style::default().fg(Color::White),
-        ),
+        Span::styled("█", Style::default().fg(Color::White)),
     ]);
-    let block = pane_block("Search", active);
+    let block = pane_block("Search", false);
     let para = Paragraph::new(body).block(block);
     frame.render_widget(para, area);
 }
 
 fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let n = app.results.len();
+    let noun = if app.browsing { "Memories" } else { "Results" };
     let title = if n == 0 {
-        "Results".to_owned()
+        noun.to_owned()
     } else {
-        format!("Results ({n})")
+        format!("{noun} ({n})")
     };
-    let active = matches!(app.focus, Focus::Results);
-    let block = pane_block(&title, active);
+    // The results/memory list is "active" (arrows drive it) whenever
+    // we're not browsing the project list.
+    let block = pane_block(&title, !app.nav_projects());
 
     if app.searching {
         let spin = spinner_frame();
@@ -159,8 +158,10 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     }
 
     if app.results.is_empty() {
-        let msg = if app.last_query.is_empty() {
-            "(type a query and press enter)"
+        let msg = if app.nav_projects() {
+            "↑/↓ select a project · ⏎ to open"
+        } else if app.browsing {
+            "no memories in this project"
         } else {
             "no results"
         };
