@@ -311,9 +311,52 @@ fn truncate(s: &str, n: usize) -> String {
 
 fn draw_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let block = pane_block("Detail (Esc to close)", false);
-    let body = app.detail.clone().unwrap_or_default();
-    let para = Paragraph::new(body).block(block).wrap(Wrap { trim: false });
+    let lines = app.detail.as_deref().map(detail_lines).unwrap_or_default();
+    let para = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
     frame.render_widget(para, area);
+}
+
+/// Render a transcript-turn chunk: a metadata header parsed from the
+/// `<!-- session:… -->` anchor, then the USER/ASSISTANT body with the
+/// raw anchor line dropped and the role labels highlighted.
+fn detail_lines(content: &str) -> Vec<Line<'static>> {
+    let mut out: Vec<Line<'static>> = Vec::new();
+    let dim = Style::default().fg(Color::DarkGray);
+    if let Some(a) = lethe_core::markdown_store::parse_anchor(content) {
+        let file = std::path::Path::new(&a.transcript)
+            .file_name()
+            .map_or_else(|| a.transcript.clone(), |s| s.to_string_lossy().into_owned());
+        out.push(Line::from(vec![
+            Span::styled("session ", dim),
+            Span::styled(truncate(&a.session, 8), Style::default().fg(Color::Cyan)),
+            Span::styled("   turn ", dim),
+            Span::styled(truncate(&a.turn, 8), Style::default().fg(Color::Cyan)),
+        ]));
+        out.push(Line::from(vec![
+            Span::styled("transcript ", dim),
+            Span::styled(file, dim),
+        ]));
+        out.push(Line::from(""));
+    }
+    for line in content.lines() {
+        let s = line.trim_end();
+        let t = s.trim();
+        if t.starts_with("<!--") && t.ends_with("-->") {
+            continue;
+        }
+        match t {
+            "USER:" => out.push(Line::from(Span::styled(
+                "USER",
+                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+            ))),
+            "ASSISTANT:" => out.push(Line::from(Span::styled(
+                "ASSISTANT",
+                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+            ))),
+            _ => out.push(Line::from(s.to_owned())),
+        }
+    }
+    out
 }
 
 fn draw_toast(frame: &mut Frame<'_>, full: Rect, app: &App) {
@@ -472,6 +515,11 @@ fn snippet(content: &str, width: usize) -> String {
             continue;
         }
         if s.starts_with("<!--") && s.ends_with("-->") {
+            continue;
+        }
+        // Transcript turns lead with role labels; skip them so the row
+        // shows the actual prompt/reply text instead of "USER:".
+        if s == "USER:" || s == "ASSISTANT:" {
             continue;
         }
         if s.len() > width {

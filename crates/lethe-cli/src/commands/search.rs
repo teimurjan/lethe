@@ -179,6 +179,11 @@ fn snippet(content: &str, width: usize) -> String {
         if s.starts_with("<!--") && s.ends_with("-->") {
             continue;
         }
+        // Transcript turns lead with role labels; skip so the snippet
+        // shows the actual prompt/reply text.
+        if s == "USER:" || s == "ASSISTANT:" {
+            continue;
+        }
         if s.len() > width {
             return s.chars().take(width).collect();
         }
