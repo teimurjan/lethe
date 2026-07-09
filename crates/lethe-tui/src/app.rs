@@ -2,12 +2,13 @@
 //! search input, results, detail pane content, and a background
 //! search worker.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use lethe_core::db::{ActiveEntry, MemoryDb};
+use lethe_core::db::MemoryDb;
+use lethe_core::markdown_store::parse_anchor;
 use lethe_core::registry::{self, ProjectEntry};
 
 use crate::search_worker::{self, Phase, SearchOutput, SearchRequest};
@@ -15,23 +16,33 @@ use crate::search_worker::{self, Phase, SearchOutput, SearchRequest};
 #[derive(Debug, Clone, Default)]
 pub struct Stats {
     pub total: usize,
-    /// `(slug, count)` sorted descending by count.
+    /// Memories whose source transcript is a Claude Code session.
+    pub claude: usize,
+    /// Memories whose source transcript is a Codex rollout.
+    pub codex: usize,
+    /// `(display_name, count)` sorted descending by count.
     pub by_project: Vec<(String, usize)>,
 }
 
-#[derive(Debug, Clone)]
-pub struct RifActiveRow {
-    pub project_slug: String,
-    pub content: String,
-    pub suppression: f32,
-    pub step: i64,
+/// Friendly project name — the basename of its root — instead of the
+/// registry slug (`p_<base>_<hash>`), which reads as noise in the UI.
+pub fn project_name(root: &Path) -> String {
+    root.file_name().map_or_else(
+        || root.to_string_lossy().into_owned(),
+        |s| s.to_string_lossy().into_owned(),
+    )
 }
 
-#[derive(Debug, Clone, Default)]
-pub struct RifActivity {
-    /// Top entries across all registered projects, sorted by suppression
-    /// score descending. Refreshed on a background poll loop.
-    pub rows: Vec<RifActiveRow>,
+/// Classify a memory by its anchor's transcript path. Codex rollouts are
+/// named `rollout-*.jsonl` and live under `sessions/`; everything else is
+/// Claude Code. `None` when the content carries no anchor.
+fn source_is_codex(content: &str) -> Option<bool> {
+    let a = parse_anchor(content)?;
+    let base = Path::new(&a.transcript)
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+    Some(base.starts_with("rollout-") || a.transcript.contains("/sessions/"))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,10 +70,8 @@ pub enum Focus {
 
 #[derive(Debug, Clone)]
 pub struct ResultRow {
-    pub project_slug: Option<String>,
-    /// Carried for symmetry with the Python TUI's expand handler — not
-    /// rendered yet but useful when "open in editor" lands.
-    #[allow(dead_code)]
+    /// Source project root for cross-project hits; tags the result row
+    /// with the friendly project name. `None` in single-project scope.
     pub project_root: Option<PathBuf>,
     /// Surfaced once `lethe-tui` learns to delegate to `lethe expand`.
     #[allow(dead_code)]
@@ -81,7 +90,7 @@ impl Scope {
     pub fn label(&self) -> String {
         match self {
             Scope::AllProjects => "all projects".to_owned(),
-            Scope::Single(e) => e.slug.clone(),
+            Scope::Single(e) => project_name(&e.root),
         }
     }
 }
@@ -112,15 +121,10 @@ pub struct App {
     /// the corrupted screen.
     pub needs_redraw: bool,
 
-    /// Per-project memory counts. `None` until the bg thread reports.
+    /// Per-project memory counts + per-source totals. `None` until the
+    /// bg thread reports.
     pub stats: Option<Stats>,
     pub stats_rx: mpsc::Receiver<Stats>,
-
-    /// Most-suppressed entries across all projects. Refreshed by a
-    /// background poller so external `lethe search` calls (from the
-    /// agent) become visible while the TUI is open.
-    pub rif: RifActivity,
-    pub rif_rx: mpsc::Receiver<RifActivity>,
 
     /// Channels owned by the background search worker.
     pub search_tx: mpsc::Sender<SearchRequest>,
@@ -132,7 +136,6 @@ impl App {
         let projects = registry::load();
         let (search_tx, search_rx) = search_worker::spawn();
         let stats_rx = spawn_stats(projects.clone());
-        let rif_rx = spawn_rif_poller(projects.clone());
         Self {
             focus: Focus::Search,
             scope: Scope::AllProjects,
@@ -149,8 +152,6 @@ impl App {
             needs_redraw: false,
             stats: None,
             stats_rx,
-            rif: RifActivity::default(),
-            rif_rx,
             search_tx,
             search_rx,
         }
@@ -221,6 +222,21 @@ impl App {
         }
     }
 
+    /// Arrow key dispatch. From the search input the first press hands
+    /// focus to the Projects pane (highlighting the current selection);
+    /// further presses move through the list. Elsewhere it's a plain
+    /// cursor move. Lets the user browse projects without pressing Tab.
+    pub fn arrow(&mut self, delta: isize) {
+        if matches!(self.focus, Focus::Search) {
+            if self.projects.is_empty() {
+                return;
+            }
+            self.focus = Focus::Projects;
+            return;
+        }
+        self.move_cursor(delta);
+    }
+
     pub fn enter_selected_project(&mut self) {
         if let Some(p) = self.projects.get(self.project_selection) {
             self.scope = Scope::Single(p.clone());
@@ -253,13 +269,6 @@ impl App {
         }
         if let Ok(s) = self.stats_rx.try_recv() {
             self.stats = Some(s);
-        }
-    }
-
-    pub fn poll_rif(&mut self) {
-        // Drain to keep only the latest snapshot.
-        while let Ok(r) = self.rif_rx.try_recv() {
-            self.rif = r;
         }
     }
 
@@ -315,81 +324,17 @@ impl App {
     }
 }
 
-/// Continuously poll every project's DuckDB for the top-suppressed
-/// entries and forward a merged snapshot. External `lethe search`
-/// writes update `cluster_suppression`/`entries.suppression`; we open
-/// read-only here, so concurrent agent calls and the TUI coexist.
-fn spawn_rif_poller(projects: Vec<ProjectEntry>) -> mpsc::Receiver<RifActivity> {
-    const POLL_EVERY: Duration = Duration::from_secs(3);
-    const PER_PROJECT_LIMIT: usize = 8;
-    const TOTAL_LIMIT: usize = 8;
-    let (tx, rx) = mpsc::channel();
-    thread::spawn(move || {
-        // One cached read-only handle per project — reused across
-        // poll cycles so we don't churn DuckDB file handles every 3s.
-        // Dropped (and reopened next tick) on any error or when the
-        // file disappears (project deleted / not yet indexed).
-        let mut handles: Vec<Option<MemoryDb>> = (0..projects.len()).map(|_| None).collect();
-        loop {
-            let mut rows: Vec<RifActiveRow> = Vec::new();
-            for (i, p) in projects.iter().enumerate() {
-                let db_path = registry::registry_dir()
-                    .join("index")
-                    .join(&p.slug)
-                    .join("lethe.duckdb");
-                if !db_path.exists() {
-                    handles[i] = None;
-                    continue;
-                }
-                if handles[i].is_none() {
-                    handles[i] = MemoryDb::open_with_mode(&db_path, true).ok();
-                }
-                let Some(db) = handles[i].as_ref() else {
-                    continue;
-                };
-                let Ok(active) = db.top_active_entries(PER_PROJECT_LIMIT) else {
-                    handles[i] = None;
-                    continue;
-                };
-                for ActiveEntry {
-                    content,
-                    suppression,
-                    step,
-                    ..
-                } in active
-                {
-                    rows.push(RifActiveRow {
-                        project_slug: p.slug.clone(),
-                        content,
-                        suppression,
-                        step,
-                    });
-                }
-            }
-            rows.sort_by(|a, b| {
-                b.suppression
-                    .partial_cmp(&a.suppression)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-                    .then_with(|| b.step.cmp(&a.step))
-            });
-            rows.truncate(TOTAL_LIMIT);
-            if tx.send(RifActivity { rows }).is_err() {
-                return;
-            }
-            thread::sleep(POLL_EVERY);
-        }
-    });
-    rx
-}
-
-/// Compute per-project memory counts off-thread. Opens each project's
-/// DuckDB file directly (no embeddings, no encoders) so first paint is
-/// fast even with many registered projects.
+/// Compute per-project memory counts + per-source (Claude Code vs Codex)
+/// totals off-thread. Opens each project's DuckDB file directly (no
+/// embeddings, no encoders) so first paint is fast even with many
+/// registered projects.
 fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let mut by_project: Vec<(String, usize)> = Vec::with_capacity(projects.len());
         let mut total = 0usize;
+        let mut claude = 0usize;
+        let mut codex = 0usize;
         for p in projects {
             let db_path = registry::registry_dir()
                 .join("index")
@@ -398,15 +343,60 @@ fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
             if !db_path.exists() {
                 continue;
             }
-            let count = MemoryDb::open_with_mode(&db_path, true)
-                .and_then(|db| db.count())
-                .map(|c| c.max(0) as usize)
-                .unwrap_or(0);
-            total += count;
-            by_project.push((p.slug, count));
+            let Ok(db) = MemoryDb::open_with_mode(&db_path, true) else {
+                continue;
+            };
+            let Ok(rows) = db.load_all_entries() else {
+                continue;
+            };
+            for row in &rows {
+                match source_is_codex(&row.content) {
+                    Some(true) => codex += 1,
+                    Some(false) => claude += 1,
+                    None => {}
+                }
+            }
+            total += rows.len();
+            by_project.push((project_name(&p.root), rows.len()));
         }
         by_project.sort_by(|a, b| b.1.cmp(&a.1));
-        let _ = tx.send(Stats { total, by_project });
+        let _ = tx.send(Stats {
+            total,
+            claude,
+            codex,
+            by_project,
+        });
     });
     rx
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn anchored(transcript: &str) -> String {
+        format!("<!-- session:s turn:t transcript:{transcript} -->\nUSER:\nq\n\nASSISTANT:\na")
+    }
+
+    #[test]
+    fn classifies_codex_vs_claude() {
+        assert_eq!(
+            source_is_codex(&anchored(
+                "/Users/x/.codex/sessions/2026/07/rollout-2026-abc.jsonl"
+            )),
+            Some(true)
+        );
+        assert_eq!(
+            source_is_codex(&anchored(
+                "/Users/x/.claude/projects/-Users-x-repo/6f0e.jsonl"
+            )),
+            Some(false)
+        );
+        assert_eq!(source_is_codex("no anchor here"), None);
+    }
+
+    #[test]
+    fn project_name_is_basename() {
+        assert_eq!(project_name(Path::new("/Users/x/Projects/lethe")), "lethe");
+    }
 }

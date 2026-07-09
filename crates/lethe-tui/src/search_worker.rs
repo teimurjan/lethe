@@ -161,7 +161,6 @@ impl WorkerState {
                 Ok(hits
                     .into_iter()
                     .map(|h| ResultRow {
-                        project_slug: Some(h.project_slug),
                         project_root: Some(h.project_root),
                         id: h.id,
                         content: h.content,
@@ -193,7 +192,6 @@ impl WorkerState {
                 Ok(hits
                     .into_iter()
                     .map(|h| ResultRow {
-                        project_slug: None,
                         project_root: None,
                         id: h.id,
                         content: h.content,

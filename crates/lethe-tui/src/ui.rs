@@ -48,12 +48,12 @@ fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(5),
-            Constraint::Length(7),
+            Constraint::Length(4),
             Constraint::Length(8),
         ])
         .split(chunks[0]);
     draw_projects(frame, left[0], app);
-    draw_rif(frame, left[1], app);
+    draw_sources(frame, left[1], app);
     draw_stats(frame, left[2], app);
     draw_results_pane(frame, chunks[1], app);
 }
@@ -71,10 +71,11 @@ fn draw_projects(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .projects
         .iter()
         .map(|p| {
+            let name = crate::app::project_name(&p.root);
             let label = if Some(p.slug.as_str()) == current_slug {
-                format!("▸ {}", p.slug)
+                format!("▸ {name}")
             } else {
-                format!("  {}", p.slug)
+                format!("  {name}")
             };
             ListItem::new(Line::from(label))
         })
@@ -189,51 +190,31 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn draw_rif(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let block = pane_block("Active Memories", false);
-    let interior = area.width.saturating_sub(2) as usize;
-    if app.rif.rows.is_empty() {
-        let para = Paragraph::new(Line::from(Span::styled(
-            "(idle)",
+fn draw_sources(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let block = pane_block("Sources", false);
+    let lines: Vec<Line<'_>> = match &app.stats {
+        None => vec![Line::from(Span::styled(
+            "computing…",
             Style::default().fg(Color::DarkGray),
-        )))
-        .block(block);
-        frame.render_widget(para, area);
-        return;
-    }
-    // Visible rows: pane Length is 7 → 5 content rows.
-    let lines: Vec<Line<'_>> = app
-        .rif
-        .rows
-        .iter()
-        .take(5)
-        .map(|r| rif_line(r, interior))
-        .collect();
+        ))],
+        Some(s) => vec![
+            source_line("Claude Code", s.claude),
+            source_line("Codex", s.codex),
+        ],
+    };
     let para = Paragraph::new(lines).block(block);
     frame.render_widget(para, area);
 }
 
-fn rif_line(r: &crate::app::RifActiveRow, interior: usize) -> Line<'_> {
-    // "<score> [<slug≤8>] <snippet>" — measure score and slug widths
-    // from their actual formatted strings so unusual values (e.g.
-    // "12.34", "-1.00") don't overflow snippet_room.
-    let score = format!("{:.2}", r.suppression);
-    let slug = truncate(&r.project_slug, 8);
-    // score + " " + "[" + slug + "] " + " "  →  score + slug + 4
-    let prefix_w = score.chars().count() + slug.chars().count() + 4;
-    let snippet_room = interior.saturating_sub(prefix_w).max(8);
-    let snip = snippet(&r.content, snippet_room);
+fn source_line(label: &str, count: usize) -> Line<'static> {
     Line::from(vec![
+        Span::styled(format!("{label:<12}"), Style::default().fg(Color::White)),
         Span::styled(
-            score,
+            format_count(count),
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" "),
-        Span::styled(format!("[{slug}]"), Style::default().fg(Color::Magenta)),
-        Span::raw(" "),
-        Span::raw(snip),
     ])
 }
 
@@ -312,7 +293,9 @@ fn truncate(s: &str, n: usize) -> String {
 fn draw_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let block = pane_block("Detail (Esc to close)", false);
     let lines = app.detail.as_deref().map(detail_lines).unwrap_or_default();
-    let para = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let para = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
     frame.render_widget(para, area);
 }
 
@@ -323,9 +306,10 @@ fn detail_lines(content: &str) -> Vec<Line<'static>> {
     let mut out: Vec<Line<'static>> = Vec::new();
     let dim = Style::default().fg(Color::DarkGray);
     if let Some(a) = lethe_core::markdown_store::parse_anchor(content) {
-        let file = std::path::Path::new(&a.transcript)
-            .file_name()
-            .map_or_else(|| a.transcript.clone(), |s| s.to_string_lossy().into_owned());
+        let file = std::path::Path::new(&a.transcript).file_name().map_or_else(
+            || a.transcript.clone(),
+            |s| s.to_string_lossy().into_owned(),
+        );
         out.push(Line::from(vec![
             Span::styled("session ", dim),
             Span::styled(truncate(&a.session, 8), Style::default().fg(Color::Cyan)),
@@ -347,11 +331,15 @@ fn detail_lines(content: &str) -> Vec<Line<'static>> {
         match t {
             "USER:" => out.push(Line::from(Span::styled(
                 "USER",
-                Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
             ))),
             "ASSISTANT:" => out.push(Line::from(Span::styled(
                 "ASSISTANT",
-                Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
             ))),
             _ => out.push(Line::from(s.to_owned())),
         }
@@ -452,7 +440,11 @@ fn result_row(
         Style::default().fg(Color::DarkGray)
     };
 
-    let slug_tag = r.project_slug.as_ref().map(|s| format!("[{s}]"));
+    // Tag cross-project hits with the friendly project name, not the slug.
+    let slug_tag = r
+        .project_root
+        .as_deref()
+        .map(|root| format!("[{}]", truncate(&crate::app::project_name(root), 14)));
     let slug_w = slug_tag.as_ref().map_or(0, |s| s.chars().count());
     let right_reserve = if slug_w > 0 { slug_w + 2 } else { 0 };
     let snippet_room = interior

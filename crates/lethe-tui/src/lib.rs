@@ -91,7 +91,6 @@ fn run_event_loop<B: ratatui::backend::Backend>(
         }
         app.poll_search_results();
         app.poll_stats();
-        app.poll_rif();
         app.poll_toast();
     }
 }
@@ -127,8 +126,8 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         (KeyCode::Char('p'), KeyModifiers::CONTROL) => app.focus = Focus::Projects,
         (KeyCode::Char('r'), KeyModifiers::CONTROL) => app.focus = Focus::Results,
 
-        (KeyCode::Up, _) => app.move_cursor(-1),
-        (KeyCode::Down, _) => app.move_cursor(1),
+        (KeyCode::Up, _) => app.arrow(-1),
+        (KeyCode::Down, _) => app.arrow(1),
 
         // Yank: copy the selected result's content to the clipboard.
         // Must precede the type-anywhere arm below so `y` doesn't get
