@@ -333,7 +333,10 @@ fn spawn_rif_poller(projects: Vec<ProjectEntry>) -> mpsc::Receiver<RifActivity> 
         loop {
             let mut rows: Vec<RifActiveRow> = Vec::new();
             for (i, p) in projects.iter().enumerate() {
-                let db_path = p.root.join(".lethe").join("index").join("lethe.duckdb");
+                let db_path = registry::registry_dir()
+                    .join("index")
+                    .join(&p.slug)
+                    .join("lethe.duckdb");
                 if !db_path.exists() {
                     handles[i] = None;
                     continue;
@@ -388,7 +391,10 @@ fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
         let mut by_project: Vec<(String, usize)> = Vec::with_capacity(projects.len());
         let mut total = 0usize;
         for p in projects {
-            let db_path = p.root.join(".lethe").join("index").join("lethe.duckdb");
+            let db_path = registry::registry_dir()
+                .join("index")
+                .join(&p.slug)
+                .join("lethe.duckdb");
             if !db_path.exists() {
                 continue;
             }

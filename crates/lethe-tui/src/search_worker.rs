@@ -174,7 +174,7 @@ impl WorkerState {
                     let _ = tx.send(SearchOutput::Phase(Phase::LoadingIndex));
                     self.union_store = None;
                     self.union_cache_key = None;
-                    let store_path = entry.root.join(".lethe").join("index");
+                    let store_path = registry::registry_dir().join("index").join(&entry.slug);
                     let store = MemoryStore::open(
                         &store_path,
                         Some(bi.clone()),
