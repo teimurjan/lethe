@@ -18,9 +18,14 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(3), // body
             if app.detail.is_some() {
-                Constraint::Length(8)
+                // Shrink the body so the detail pane gets the lion's share.
+                Constraint::Percentage(45)
+            } else {
+                Constraint::Min(3)
+            },
+            if app.detail.is_some() {
+                Constraint::Percentage(55)
             } else {
                 Constraint::Length(0)
             },
@@ -437,37 +442,67 @@ fn truncate(s: &str, n: usize) -> String {
 }
 
 fn draw_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let content = app.detail.as_deref().unwrap_or_default();
     let block = pane_block("Detail (Esc to close)", false);
-    let lines = app.detail.as_deref().map(detail_lines).unwrap_or_default();
-    let para = Paragraph::new(lines)
-        .block(block)
-        .wrap(Wrap { trim: false });
-    frame.render_widget(para, area);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let header = detail_header(content);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(header.len() as u16),
+            Constraint::Min(1),
+        ])
+        .split(inner);
+    frame.render_widget(Paragraph::new(header), rows[0]);
+
+    // Body: USER on the left, ASSISTANT on the right.
+    let (user, assistant) = detail_body(content);
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(rows[1]);
+    frame.render_widget(
+        Paragraph::new(user)
+            .block(pane_block("USER", false).border_style(Style::default().fg(Color::Yellow)))
+            .wrap(Wrap { trim: false }),
+        cols[0],
+    );
+    frame.render_widget(
+        Paragraph::new(assistant)
+            .block(pane_block("ASSISTANT", false).border_style(Style::default().fg(Color::Green)))
+            .wrap(Wrap { trim: false }),
+        cols[1],
+    );
 }
 
-/// Render a transcript-turn chunk: a metadata header parsed from the
-/// `<!-- session:… -->` anchor, then the USER/ASSISTANT body with the
-/// raw anchor line dropped and the role labels highlighted.
-fn detail_lines(content: &str) -> Vec<Line<'static>> {
-    let mut out: Vec<Line<'static>> = Vec::new();
+/// The metadata header parsed from the `<!-- session:… -->` anchor.
+fn detail_header(content: &str) -> Vec<Line<'static>> {
     let dim = Style::default().fg(Color::DarkGray);
-    if let Some(a) = lethe_core::markdown_store::parse_anchor(content) {
-        let file = std::path::Path::new(&a.transcript).file_name().map_or_else(
-            || a.transcript.clone(),
-            |s| s.to_string_lossy().into_owned(),
-        );
-        out.push(Line::from(vec![
-            Span::styled("session ", dim),
-            Span::styled(truncate(&a.session, 8), Style::default().fg(Color::Cyan)),
-            Span::styled("   turn ", dim),
-            Span::styled(truncate(&a.turn, 8), Style::default().fg(Color::Cyan)),
-        ]));
-        out.push(Line::from(vec![
-            Span::styled("transcript ", dim),
-            Span::styled(file, dim),
-        ]));
-        out.push(Line::from(""));
-    }
+    let Some(a) = lethe_core::markdown_store::parse_anchor(content) else {
+        return Vec::new();
+    };
+    let file = std::path::Path::new(&a.transcript).file_name().map_or_else(
+        || a.transcript.clone(),
+        |s| s.to_string_lossy().into_owned(),
+    );
+    vec![Line::from(vec![
+        Span::styled("session ", dim),
+        Span::styled(truncate(&a.session, 8), Style::default().fg(Color::Cyan)),
+        Span::styled("   turn ", dim),
+        Span::styled(truncate(&a.turn, 8), Style::default().fg(Color::Cyan)),
+        Span::styled("   transcript ", dim),
+        Span::styled(file, dim),
+    ])]
+}
+
+/// Split a transcript-turn chunk into its USER and ASSISTANT bodies,
+/// dropping the raw anchor line and the `USER:`/`ASSISTANT:` markers.
+fn detail_body(content: &str) -> (Vec<Line<'static>>, Vec<Line<'static>>) {
+    let mut user: Vec<Line<'static>> = Vec::new();
+    let mut assistant: Vec<Line<'static>> = Vec::new();
+    let mut target = &mut user;
     for line in content.lines() {
         let s = line.trim_end();
         let t = s.trim();
@@ -475,22 +510,18 @@ fn detail_lines(content: &str) -> Vec<Line<'static>> {
             continue;
         }
         match t {
-            "USER:" => out.push(Line::from(Span::styled(
-                "USER",
-                Style::default()
-                    .fg(Color::Yellow)
-                    .add_modifier(Modifier::BOLD),
-            ))),
-            "ASSISTANT:" => out.push(Line::from(Span::styled(
-                "ASSISTANT",
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD),
-            ))),
-            _ => out.push(Line::from(s.to_owned())),
+            "USER:" => {
+                target = &mut user;
+                continue;
+            }
+            "ASSISTANT:" => {
+                target = &mut assistant;
+                continue;
+            }
+            _ => target.push(Line::from(s.to_owned())),
         }
     }
-    out
+    (user, assistant)
 }
 
 fn draw_toast(frame: &mut Frame<'_>, full: Rect, app: &App) {
