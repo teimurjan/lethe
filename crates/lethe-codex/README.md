@@ -20,6 +20,6 @@ lethe-codex transcript <rollout.jsonl>
 lethe-codex transcript <rollout.jsonl> --turn <turn-uuid>
 ```
 
-`transcript` parses a Codex CLI rollout JSONL (`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`) and prints the last user/assistant pair (or a specific turn) as plain text suitable for piping into a downstream LLM enrichment prompt.
+`transcript` parses a Codex CLI rollout JSONL (`$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`) and prints the last user/assistant pair (or a specific turn) as plain text.
 
-Output is byte-for-byte compatible with `lethe-claude-code transcript` so the same hook pipeline (`hooks/parse-transcript.sh`) works for both agents.
+Output is byte-for-byte compatible with `lethe-claude-code transcript` so the `recall` skill's drill-down step works the same for both agents.
