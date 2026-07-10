@@ -91,13 +91,76 @@ pub fn ensure_fresh(store: &MemoryStore, project_root: &Path) -> crate::Result<S
     Ok(total)
 }
 
-/// Parse a transcript file by source into `(cwd, chunks)`.
+/// Filename of Claude Code's per-project session index.
+const CLAUDE_SESSIONS_INDEX: &str = "sessions-index.json";
+
+/// Parse a transcript file by source into `(cwd, chunks)`. Claude's
+/// `sessions-index.json` is handled specially (metadata, not a transcript).
 #[must_use]
 pub fn parse_file(path: &Path, source: Source) -> ParsedFile {
+    if source == Source::ClaudeCode
+        && path.file_name().and_then(|n| n.to_str()) == Some(CLAUDE_SESSIONS_INDEX)
+    {
+        return parse_claude_index(path);
+    }
     match source {
         Source::ClaudeCode => parse_claude_file(path),
         Source::Codex => parse_codex_file(path),
     }
+}
+
+/// Parse Claude Code's `sessions-index.json`. This survives after the
+/// actual `.jsonl` transcripts are pruned, so for any session whose
+/// transcript is gone we recover a lightweight memory from its recorded
+/// `firstPrompt` (sessions whose transcript still exists are skipped —
+/// the full transcript is indexed instead). `cwd` comes from the entries'
+/// `projectPath`, so a folder with only a pruned index still resolves to
+/// its (possibly still-present) repo.
+fn parse_claude_index(path: &Path) -> ParsedFile {
+    let Ok(text) = fs::read_to_string(path) else {
+        return ParsedFile::default();
+    };
+    let Ok(json) = serde_json::from_str::<Value>(&text) else {
+        return ParsedFile::default();
+    };
+    let Some(entries) = json.get("entries").and_then(|v| v.as_array()) else {
+        return ParsedFile::default();
+    };
+    let mut cwd: Option<String> = None;
+    let mut chunks: Vec<TurnChunk> = Vec::new();
+    for (i, e) in entries.iter().enumerate() {
+        if cwd.is_none() {
+            cwd = e
+                .get("projectPath")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(str::to_owned);
+        }
+        // Skip sessions whose transcript still exists — indexed in full
+        // elsewhere; don't duplicate as a stub.
+        let full = e.get("fullPath").and_then(|v| v.as_str()).unwrap_or("");
+        if !full.is_empty() && Path::new(full).exists() {
+            continue;
+        }
+        let first = e
+            .get("firstPrompt")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim();
+        if first.is_empty() {
+            continue;
+        }
+        let session = e.get("sessionId").and_then(|v| v.as_str()).unwrap_or("");
+        let count = e
+            .get("messageCount")
+            .and_then(serde_json::Value::as_i64)
+            .unwrap_or(0);
+        let assistant = format!("(transcript pruned — {count} messages)");
+        chunks.push(build_chunk(
+            session, "index", full, first, &assistant, i as i64,
+        ));
+    }
+    ParsedFile { cwd, chunks }
 }
 
 /// Cheaply read a transcript's recorded `cwd` without materializing turns
@@ -265,10 +328,16 @@ fn claude_files_for(project_root: &Path) -> Vec<PathBuf> {
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut out = Vec::new();
     for root in worktree_roots(project_root) {
-        for path in jsonl_recursive(&projects.join(path_to_claude_slug(&root))) {
+        let dir = projects.join(path_to_claude_slug(&root));
+        for path in jsonl_recursive(&dir) {
             if seen.insert(path.clone()) {
                 out.push(path);
             }
+        }
+        // The session index lets us recover pruned sessions' first prompts.
+        let idx = dir.join(CLAUDE_SESSIONS_INDEX);
+        if idx.is_file() && seen.insert(idx.clone()) {
+            out.push(idx);
         }
     }
     out
@@ -583,6 +652,29 @@ mod tests {
         assert!(parsed.chunks[0].content.contains("turn:u1"));
         assert!(parsed.chunks[1].content.contains("again"));
         fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn parse_claude_index_recovers_pruned_sessions() {
+        // fullPath points at a jsonl that doesn't exist → recover the
+        // firstPrompt as a memory; cwd comes from projectPath.
+        let p = write_jsonl(
+            "index",
+            &[r#"{"version":1,"entries":[
+                {"sessionId":"s1","fullPath":"/gone/s1.jsonl","firstPrompt":"fix the anonymization worker","messageCount":15,"projectPath":"/repo"},
+                {"sessionId":"s2","fullPath":"/gone/s2.jsonl","firstPrompt":"add dark mode","messageCount":3,"projectPath":"/repo"}
+            ]}"#],
+        );
+        // Rename to the exact filename parse_file dispatches on.
+        let idx = p.with_file_name("sessions-index.json");
+        fs::rename(&p, &idx).unwrap();
+
+        let parsed = parse_file(&idx, Source::ClaudeCode);
+        assert_eq!(parsed.cwd.as_deref(), Some("/repo"));
+        assert_eq!(parsed.chunks.len(), 2);
+        assert!(parsed.chunks[0].content.contains("anonymization worker"));
+        assert!(parsed.chunks[0].content.contains("session:s1"));
+        fs::remove_file(&idx).ok();
     }
 
     #[test]

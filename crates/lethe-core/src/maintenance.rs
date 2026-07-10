@@ -168,9 +168,14 @@ pub fn scan_stale_transcripts() -> Vec<StaleTranscript> {
     let mut out = Vec::new();
 
     // Claude: one candidate per project folder (transcripts may nest in
-    // <session-id>/subagents/, so scan recursively).
+    // <session-id>/subagents/, so scan recursively; also read the session
+    // index, which retains pruned sessions' first prompts + project path).
     for dir in claude_project_dirs() {
-        let files = jsonl_recursive(&dir);
+        let mut files = jsonl_recursive(&dir);
+        let idx = dir.join("sessions-index.json");
+        if idx.is_file() {
+            files.push(idx);
+        }
         let mut cwd: Option<String> = None;
         let mut has_memories = false;
         for f in &files {
