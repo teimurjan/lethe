@@ -17,6 +17,7 @@ pub mod faiss_flat;
 pub mod fields;
 pub mod kmeans;
 pub mod lock;
+pub mod maintenance;
 pub mod markdown_store;
 pub mod memory_store;
 pub mod registry;
@@ -24,6 +25,7 @@ pub mod reranker;
 pub mod rif;
 pub mod rrf;
 pub mod tokenize;
+pub mod transcript_index;
 pub mod transcript_store;
 pub mod union_store;
 

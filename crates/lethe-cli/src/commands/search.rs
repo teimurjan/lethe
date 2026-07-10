@@ -51,7 +51,7 @@ pub fn run_local(
     // read-only mode (the lock-contention fallback): retrieval then runs
     // against whatever was last indexed.
     if !read_only {
-        super::transcript_index::ensure_fresh(&store, &paths.root)?;
+        lethe_core::transcript_index::ensure_fresh(&store, &paths.root)?;
     }
     let hits = store.retrieve(query, top_k)?;
     if !read_only {

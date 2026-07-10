@@ -10,7 +10,7 @@ use ratatui::Frame;
 use crate::app::{App, Stats, ToastKind};
 
 const FOOTER: &str =
-    "type to search · ↑/↓ browse · ⏎ open · esc back · ^c copy · ^d delete project · ^q quit";
+    "type search · ↑/↓ projects · ⏎ open · ^a actions · ^c copy · esc back · ^q quit";
 const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
@@ -34,9 +34,95 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
     }
     draw_footer(frame, chunks[2]);
 
-    // Toast last so it floats above everything else.
+    // Modal overlay floats above the base view…
+    if app.overlay.is_some() {
+        draw_overlay(frame, area, app);
+    }
+    // …and a transient toast floats above everything.
     if app.toast.is_some() {
         draw_toast(frame, area, app);
+    }
+}
+
+/// A `Rect` of at most `w`×`h` centered in `area`.
+fn centered_rect(w: u16, h: u16, area: Rect) -> Rect {
+    let w = w.min(area.width);
+    let h = h.min(area.height);
+    Rect {
+        x: area.x + (area.width - w) / 2,
+        y: area.y + (area.height - h) / 2,
+        width: w,
+        height: h,
+    }
+}
+
+fn draw_overlay(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    use crate::app::Overlay;
+    match app.overlay.as_ref() {
+        Some(Overlay::Actions(cursor)) => {
+            let items: Vec<ListItem> = crate::app::ACTIONS
+                .iter()
+                .enumerate()
+                .map(|(i, label)| {
+                    let marker = if i == *cursor { "▸ " } else { "  " };
+                    let style = if i == *cursor {
+                        Style::default().add_modifier(Modifier::BOLD)
+                    } else {
+                        Style::default().fg(Color::Gray)
+                    };
+                    ListItem::new(Line::from(Span::styled(format!("{marker}{label}"), style)))
+                })
+                .collect();
+            let w = 40u16;
+            let h = crate::app::ACTIONS.len() as u16 + 2;
+            let rect = centered_rect(w, h, area);
+            frame.render_widget(Clear, rect);
+            frame.render_widget(List::new(items).block(pane_block("Actions", true)), rect);
+        }
+        Some(Overlay::Confirm(c)) => {
+            let mut lines: Vec<Line<'_>> = Vec::new();
+            for l in &c.lines {
+                lines.push(Line::from(l.clone()));
+            }
+            let width = c
+                .lines
+                .iter()
+                .map(|l| l.chars().count())
+                .chain(std::iter::once(c.title.chars().count()))
+                .max()
+                .unwrap_or(20)
+                .clamp(24, 72) as u16
+                + 4;
+            let h = c.lines.len() as u16 + 2;
+            let rect = centered_rect(width, h, area);
+            frame.render_widget(Clear, rect);
+            frame.render_widget(
+                Paragraph::new(lines)
+                    .block(pane_block(&c.title, true))
+                    .wrap(Wrap { trim: false }),
+                rect,
+            );
+        }
+        Some(Overlay::Busy(label)) => {
+            let body = Line::from(vec![
+                Span::styled(
+                    spinner_frame(),
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::raw("  "),
+                Span::raw(label.clone()),
+            ]);
+            let w = (label.chars().count() as u16 + 8).clamp(20, 60);
+            let rect = centered_rect(w, 3, area);
+            frame.render_widget(Clear, rect);
+            frame.render_widget(
+                Paragraph::new(body).block(pane_block("Working", true)),
+                rect,
+            );
+        }
+        None => {}
     }
 }
 

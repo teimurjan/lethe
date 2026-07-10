@@ -96,6 +96,15 @@ enum Cmd {
         #[command(subcommand)]
         action: ProjectsCmd,
     },
+    /// Delete dead/empty Claude Code & Codex transcripts from disk.
+    /// Dry-run unless `--yes`.
+    Cleanup {
+        /// Actually delete (default is a preview).
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json_output: bool,
+    },
     /// Interactive TUI. Implicit when `lethe` is run with no args in a terminal.
     Tui,
 }
@@ -113,6 +122,18 @@ enum ProjectsCmd {
     Remove { name: String },
     /// Drop registry entries whose roots no longer exist.
     Prune,
+    /// Remove registered projects that have no memories (indexed, empty).
+    /// Dry-run unless `--yes`.
+    PruneEmpty {
+        /// Also delete each project's Claude/Codex transcripts on disk.
+        #[arg(long)]
+        transcripts: bool,
+        /// Actually delete (default is a preview).
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json_output: bool,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -181,6 +202,7 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         }
         Cmd::Reset { yes } => commands::reset::run(root, yes),
         Cmd::Projects { action } => commands::projects::run(action),
+        Cmd::Cleanup { yes, json_output } => commands::cleanup::run(yes, json_output),
         Cmd::Tui => commands::tui::run(),
     }
 }

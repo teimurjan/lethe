@@ -102,13 +102,25 @@ fn run_event_loop<B: ratatui::backend::Backend>(
 /// back; Ctrl+C copies the highlighted memory; Ctrl+D deletes the
 /// highlighted project; Ctrl+Q quits.
 fn handle_key(app: &mut App, key: KeyEvent) -> bool {
+    // Quit works from anywhere, including modal overlays.
+    if let (KeyCode::Char('q'), KeyModifiers::CONTROL) = (key.code, key.modifiers) {
+        return true;
+    }
+    // While an overlay (actions menu / confirm / busy) is open it captures
+    // every other key, leaving the base view's bindings untouched.
+    if app.overlay.is_some() {
+        app.overlay_key(key.code);
+        return false;
+    }
+
     match (key.code, key.modifiers) {
-        (KeyCode::Char('q'), KeyModifiers::CONTROL) => return true,
+        // Open the actions menu.
+        (KeyCode::Char('a'), KeyModifiers::CONTROL) => app.open_actions(),
 
         // Copy the highlighted memory.
         (KeyCode::Char('c'), KeyModifiers::CONTROL) => app.copy_selected_to_clipboard(),
 
-        // Delete the highlighted project (project list only; press twice).
+        // Delete the highlighted project (press twice).
         (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.request_or_confirm_delete(),
 
         (KeyCode::Enter, _) => app.on_enter(),

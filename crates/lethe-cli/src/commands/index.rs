@@ -15,8 +15,9 @@ use serde::Serialize;
 
 use crate::paths::{resolve, Paths};
 
+use lethe_core::transcript_index;
+
 use super::store_helpers::{load_config, open_store, CliConfig};
-use super::transcript_index;
 
 #[derive(Serialize)]
 struct IndexCounts {

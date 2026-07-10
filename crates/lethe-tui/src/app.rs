@@ -12,10 +12,11 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use lethe_core::db::MemoryDb;
+use lethe_core::maintenance::{self, StaleTranscript};
 use lethe_core::markdown_store::parse_anchor;
 use lethe_core::registry::{self, ProjectEntry};
 
-use crate::search_worker::{self, Phase, SearchOutput, SearchRequest};
+use crate::search_worker::{self, Phase, SearchQuery, WorkerOutput, WorkerRequest};
 
 /// Cap on how many memories the browse view loads per project.
 const BROWSE_LIMIT: usize = 500;
@@ -100,10 +101,48 @@ impl Scope {
     }
 }
 
+/// Labels for the actions menu, in order. Index maps to `activate_action`.
+pub const ACTIONS: [&str; 5] = [
+    "Index this project",
+    "Index all projects",
+    "Delete this project",
+    "Delete empty projects",
+    "Clean up dead transcripts",
+];
+
+/// A destructive action awaiting confirmation.
+#[derive(Debug)]
+pub enum PendingAction {
+    DeleteProject(ProjectEntry),
+    DeleteEmpty(Vec<ProjectEntry>),
+    CleanupStale(Vec<StaleTranscript>),
+}
+
+#[derive(Debug)]
+pub struct Confirm {
+    pub title: String,
+    pub lines: Vec<String>,
+    pub action: PendingAction,
+    /// Whether a `t` (also-delete-transcripts) choice is offered.
+    pub allow_transcripts: bool,
+}
+
+/// Modal overlay state. `None` = the normal browse view.
+#[derive(Debug)]
+pub enum Overlay {
+    /// Actions menu with the given cursor position.
+    Actions(usize),
+    /// Confirm a destructive action.
+    Confirm(Confirm),
+    /// A background worker is running; the string is the status label.
+    Busy(String),
+}
+
 pub struct App {
     pub scope: Scope,
     pub projects: Vec<ProjectEntry>,
     pub project_selection: usize,
+    pub overlay: Option<Overlay>,
 
     pub search_input: String,
     pub last_query: String,
@@ -132,9 +171,9 @@ pub struct App {
     pub stats: Option<Stats>,
     pub stats_rx: mpsc::Receiver<Stats>,
 
-    /// Channels owned by the background search worker.
-    pub search_tx: mpsc::Sender<SearchRequest>,
-    pub search_rx: mpsc::Receiver<SearchOutput>,
+    /// Channels owned by the background worker.
+    pub search_tx: mpsc::Sender<WorkerRequest>,
+    pub search_rx: mpsc::Receiver<WorkerOutput>,
 }
 
 impl App {
@@ -146,6 +185,7 @@ impl App {
             scope: Scope::AllProjects,
             projects,
             project_selection: 0,
+            overlay: None,
             search_input: String::new(),
             last_query: String::new(),
             searching: false,
@@ -316,11 +356,11 @@ impl App {
         self.search_phase = None;
         self.results.clear();
         self.detail = None;
-        let _ = self.search_tx.send(SearchRequest {
+        let _ = self.search_tx.send(WorkerRequest::Search(SearchQuery {
             query,
             scope: self.scope.clone(),
             top_k: 10,
-        });
+        }));
     }
 
     pub fn poll_stats(&mut self) {
@@ -347,10 +387,14 @@ impl App {
     pub fn poll_search_results(&mut self) {
         while let Ok(output) = self.search_rx.try_recv() {
             match output {
-                SearchOutput::Phase(p) => {
+                WorkerOutput::Phase(p) => {
                     self.search_phase = Some(p);
+                    // Reflect worker progress in the Busy overlay label.
+                    if matches!(self.overlay, Some(Overlay::Busy(_))) {
+                        self.overlay = Some(Overlay::Busy(format!("{}…", p.label())));
+                    }
                 }
-                SearchOutput::Hits(rows) => {
+                WorkerOutput::Hits(rows) => {
                     self.searching = false;
                     self.search_phase = None;
                     self.needs_redraw = true;
@@ -363,9 +407,44 @@ impl App {
                         self.refresh_detail_from_highlight();
                     }
                 }
-                SearchOutput::Error(e) => {
+                WorkerOutput::Indexed { added, projects } => {
+                    self.overlay = None;
+                    self.search_phase = None;
+                    self.needs_redraw = true;
+                    self.show_toast(
+                        format!("indexed {projects} project(s), +{added} memories"),
+                        ToastKind::Info,
+                    );
+                    self.refresh_stats();
+                    self.open_current();
+                }
+                WorkerOutput::Scanned(items) => {
+                    self.search_phase = None;
+                    self.needs_redraw = true;
+                    if items.is_empty() {
+                        self.overlay = None;
+                        self.show_toast("nothing to clean up", ToastKind::Info);
+                    } else {
+                        self.overlay = Some(Overlay::Confirm(cleanup_confirm(items)));
+                    }
+                }
+                WorkerOutput::Deleted(r) => {
+                    self.overlay = None;
+                    self.needs_redraw = true;
+                    self.show_toast(
+                        format!(
+                            "deleted {} transcript(s), reclaimed {}",
+                            r.transcripts,
+                            maintenance::human_bytes(r.bytes)
+                        ),
+                        ToastKind::Info,
+                    );
+                    self.refresh_stats();
+                }
+                WorkerOutput::Error(e) => {
                     self.searching = false;
                     self.search_phase = None;
+                    self.overlay = None;
                     self.needs_redraw = true;
                     self.show_toast(format!("error: {e}"), ToastKind::Error);
                 }
@@ -377,6 +456,203 @@ impl App {
         if let Some(row) = self.results.get(self.result_selection) {
             self.detail = Some(row.content.clone());
         }
+    }
+
+    /// Recompute per-project + per-source counts after a mutation.
+    fn refresh_stats(&mut self) {
+        self.stats = None;
+        self.stats_rx = spawn_stats(self.projects.clone());
+    }
+
+    // -------- actions menu / overlay --------
+
+    /// Open the actions menu (Ctrl+A).
+    pub fn open_actions(&mut self) {
+        self.pending_delete = None;
+        self.overlay = Some(Overlay::Actions(0));
+    }
+
+    /// Route a key to the active overlay. Returns without effect when no
+    /// overlay is open.
+    pub fn overlay_key(&mut self, code: crossterm::event::KeyCode) {
+        use crossterm::event::KeyCode;
+        match &mut self.overlay {
+            Some(Overlay::Actions(cursor)) => match code {
+                KeyCode::Up => *cursor = (*cursor + ACTIONS.len() - 1) % ACTIONS.len(),
+                KeyCode::Down => *cursor = (*cursor + 1) % ACTIONS.len(),
+                KeyCode::Enter => {
+                    let idx = *cursor;
+                    self.activate_action(idx);
+                }
+                KeyCode::Esc => self.overlay = None,
+                _ => {}
+            },
+            Some(Overlay::Confirm(c)) => match code {
+                KeyCode::Char('y') => self.confirm(false),
+                KeyCode::Char('t') if c.allow_transcripts => self.confirm(true),
+                KeyCode::Esc | KeyCode::Char('n') => self.overlay = None,
+                _ => {}
+            },
+            Some(Overlay::Busy(_)) => {
+                if code == KeyCode::Esc {
+                    // Dismiss the modal; the worker keeps running and its
+                    // result is applied when it lands.
+                    self.overlay = None;
+                }
+            }
+            None => {}
+        }
+    }
+
+    fn activate_action(&mut self, idx: usize) {
+        match idx {
+            0 => {
+                // Index this project.
+                if let Scope::Single(entry) = &self.scope {
+                    let entry = entry.clone();
+                    self.start_busy("indexing");
+                    let _ = self.search_tx.send(WorkerRequest::Index(vec![entry]));
+                }
+            }
+            1 => {
+                // Index all registered projects.
+                let all = registry::load();
+                if all.is_empty() {
+                    self.overlay = None;
+                    self.show_toast("no registered projects", ToastKind::Info);
+                } else {
+                    self.start_busy("indexing");
+                    let _ = self.search_tx.send(WorkerRequest::Index(all));
+                }
+            }
+            2 => {
+                // Delete this project (confirm).
+                if let Some(entry) = self.projects.get(self.project_selection).cloned() {
+                    let name = project_name(&entry.root);
+                    self.overlay = Some(Overlay::Confirm(Confirm {
+                        title: format!("Delete project '{name}'?"),
+                        lines: vec![
+                            "y = remove from lethe   t = also delete transcripts".into(),
+                            "Transcripts are on disk under ~/.claude & ~/.codex.".into(),
+                        ],
+                        action: PendingAction::DeleteProject(entry),
+                        allow_transcripts: true,
+                    }));
+                }
+            }
+            3 => {
+                // Delete empty projects (confirm).
+                let empty = maintenance::empty_projects();
+                if empty.is_empty() {
+                    self.overlay = None;
+                    self.show_toast("no empty projects", ToastKind::Info);
+                } else {
+                    let mut lines: Vec<String> = empty
+                        .iter()
+                        .map(|e| format!("• {}", project_name(&e.root)))
+                        .collect();
+                    lines.push(String::new());
+                    lines.push("y = remove from lethe   t = also delete transcripts".into());
+                    self.overlay = Some(Overlay::Confirm(Confirm {
+                        title: format!("Delete {} empty project(s)?", empty.len()),
+                        lines,
+                        action: PendingAction::DeleteEmpty(empty),
+                        allow_transcripts: true,
+                    }));
+                }
+            }
+            4 => {
+                // Scan for dead transcripts (worker); confirm on result.
+                self.start_busy("scanning");
+                let _ = self.search_tx.send(WorkerRequest::Scan);
+            }
+            _ => self.overlay = None,
+        }
+    }
+
+    fn start_busy(&mut self, label: &str) {
+        self.overlay = Some(Overlay::Busy(format!("{label}…")));
+        self.needs_redraw = true;
+    }
+
+    /// Execute the confirmed action. `with_transcripts` reflects y vs t.
+    fn confirm(&mut self, with_transcripts: bool) {
+        let Some(Overlay::Confirm(c)) = self.overlay.take() else {
+            return;
+        };
+        match c.action {
+            PendingAction::DeleteProject(entry) => {
+                let _ = self.search_tx.send(WorkerRequest::ReleaseCaches);
+                let r = maintenance::delete_project_data(&entry, with_transcripts);
+                self.after_project_delete(r);
+            }
+            PendingAction::DeleteEmpty(entries) => {
+                let _ = self.search_tx.send(WorkerRequest::ReleaseCaches);
+                let mut total = maintenance::Reclaimed::default();
+                for e in &entries {
+                    let r = maintenance::delete_project_data(e, with_transcripts);
+                    total.projects += r.projects;
+                    total.transcripts += r.transcripts;
+                    total.bytes += r.bytes;
+                }
+                self.after_project_delete(total);
+            }
+            PendingAction::CleanupStale(items) => {
+                self.start_busy("deleting");
+                let _ = self.search_tx.send(WorkerRequest::DeleteStale(items));
+            }
+        }
+    }
+
+    fn after_project_delete(&mut self, r: maintenance::Reclaimed) {
+        self.projects = registry::load();
+        if self.projects.is_empty() {
+            self.project_selection = 0;
+        } else {
+            self.project_selection = self.project_selection.min(self.projects.len() - 1);
+        }
+        self.search_input.clear();
+        self.open_current();
+        self.refresh_stats();
+        self.show_toast(
+            format!(
+                "deleted {} project(s), reclaimed {}",
+                r.projects,
+                maintenance::human_bytes(r.bytes)
+            ),
+            ToastKind::Info,
+        );
+    }
+}
+
+/// Build the confirm dialog for a set of stale transcripts.
+fn cleanup_confirm(items: Vec<StaleTranscript>) -> Confirm {
+    let bytes: u64 = items.iter().map(|s| s.bytes).sum();
+    let mut lines: Vec<String> = items
+        .iter()
+        .take(12)
+        .map(|s| {
+            let name = s.path.file_name().map_or_else(
+                || s.path.to_string_lossy().into_owned(),
+                |n| n.to_string_lossy().into_owned(),
+            );
+            format!("• {} ({})", name, s.reason.label())
+        })
+        .collect();
+    if items.len() > 12 {
+        lines.push(format!("… and {} more", items.len() - 12));
+    }
+    lines.push(String::new());
+    lines.push("y = delete from disk (irreversible)   esc = cancel".into());
+    Confirm {
+        title: format!(
+            "Delete {} transcript(s), reclaim {}?",
+            items.len(),
+            maintenance::human_bytes(bytes)
+        ),
+        lines,
+        action: PendingAction::CleanupStale(items),
+        allow_transcripts: false,
     }
 }
 
