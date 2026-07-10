@@ -10,7 +10,7 @@ use ratatui::Frame;
 use crate::app::{App, Stats, ToastKind};
 
 const FOOTER: &str =
-    "type search · ↑/↓ projects · ⏎ open · ^a actions · ^c copy · esc back · ^q quit";
+    "type search · tab projects · ↑/↓ memories · ⏎ open · ^a actions · ^c copy · esc · ^q quit";
 const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
@@ -202,9 +202,10 @@ fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 }
 
 fn draw_projects(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
-    let title = format!("Projects ({})", app.projects.len());
-    // Arrows always drive this pane, so it's always the active one.
-    let block = pane_block(&title, true);
+    let title = format!("Projects ({}) — tab", app.projects.len());
+    // Driven by Tab/Shift+Tab; the reversed selection shows the current
+    // project. The arrow-driven memory pane carries the active border.
+    let block = pane_block(&title, false);
 
     // Names get a 2-col marker prefix; trim the rest to the pane width
     // with an ellipsis so long names don't overflow or wrap.
@@ -264,11 +265,10 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let title = if n == 0 {
         noun.to_owned()
     } else {
-        format!("{noun} ({n})")
+        format!("{noun} ({n}) — ↑/↓")
     };
-    // Passive pane: memories aren't a focus target, so it's never drawn
-    // as active.
-    let block = pane_block(&title, false);
+    // Arrow keys move within this list, so it carries the active border.
+    let block = pane_block(&title, true);
 
     if app.searching {
         let spin = spinner_frame();
@@ -328,9 +328,12 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .map(|(idx, r)| result_row(idx, r, top_score, interior))
         .collect();
 
-    // No selection highlight — the memory list is a passive display.
-    let list = List::new(items).block(block);
-    frame.render_widget(list, area);
+    let mut state = ListState::default();
+    state.select(Some(app.result_selection.min(n - 1)));
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
+    frame.render_stateful_widget(list, area, &mut state);
 }
 
 fn draw_sources(frame: &mut Frame<'_>, area: Rect, app: &App) {

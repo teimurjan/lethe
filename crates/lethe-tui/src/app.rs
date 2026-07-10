@@ -1,10 +1,11 @@
 //! TUI app state.
 //!
-//! Interaction model (no focus panes, no Tab): arrows always move the
-//! project sidebar and load the highlighted project's memories into the
-//! passive right pane. Typing edits the search box; Enter searches within
-//! the current project; Esc clears the search back to all memories. Ctrl+C
-//! copies the top memory/hit, Ctrl+D deletes the highlighted project.
+//! Interaction model: Tab / Shift+Tab cycle the project sidebar and load
+//! the highlighted project's memories into the right pane; ↑/↓ move the
+//! highlight within that memory list. Typing edits the search box; Enter
+//! searches within the current project; Esc clears the search back to all
+//! memories. Ctrl+C copies the highlighted memory, Ctrl+D deletes the
+//! highlighted project, Ctrl+A opens the actions menu.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -281,10 +282,19 @@ impl App {
         }
     }
 
-    /// Arrows always move the project sidebar and load that project's
-    /// memories — there is no separate "focus". The memory list is a
-    /// passive display, so arrows never move within it.
+    /// ↑/↓ — move the highlight within the current project's memory list.
     pub fn arrow(&mut self, delta: isize) {
+        self.pending_delete = None;
+        if self.results.is_empty() {
+            return;
+        }
+        let len = self.results.len() as isize;
+        self.result_selection = (self.result_selection as isize + delta).rem_euclid(len) as usize;
+        self.refresh_detail_from_highlight();
+    }
+
+    /// Tab / Shift+Tab — cycle the project sidebar and load its memories.
+    pub fn cycle_project(&mut self, delta: isize) {
         self.pending_delete = None;
         if self.projects.is_empty() {
             return;

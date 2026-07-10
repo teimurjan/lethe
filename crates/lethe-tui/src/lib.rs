@@ -97,10 +97,11 @@ fn run_event_loop<B: ratatui::backend::Backend>(
 
 /// Returns `true` when the app wants to exit.
 ///
-/// No focus panes: typing always edits the search box; arrows move the
-/// project list (while browsing projects) or the memory list; Esc goes
-/// back; Ctrl+C copies the highlighted memory; Ctrl+D deletes the
-/// highlighted project; Ctrl+Q quits.
+/// Typing always edits the search box; Tab / Shift+Tab cycle the project
+/// sidebar (loading that project's memories); ↑/↓ move within the memory
+/// list; Esc goes back; Ctrl+C copies the highlighted memory; Ctrl+D
+/// deletes the highlighted project; Ctrl+A opens the actions menu; Ctrl+Q
+/// quits.
 fn handle_key(app: &mut App, key: KeyEvent) -> bool {
     // Quit works from anywhere, including modal overlays.
     if let (KeyCode::Char('q'), KeyModifiers::CONTROL) = (key.code, key.modifiers) {
@@ -126,6 +127,9 @@ fn handle_key(app: &mut App, key: KeyEvent) -> bool {
         (KeyCode::Enter, _) => app.on_enter(),
         (KeyCode::Esc, _) => app.escape(),
 
+        // Tab / Shift+Tab cycle projects; arrows move within memories.
+        (KeyCode::Tab, _) => app.cycle_project(1),
+        (KeyCode::BackTab, _) => app.cycle_project(-1),
         (KeyCode::Up, _) => app.arrow(-1),
         (KeyCode::Down, _) => app.arrow(1),
 
