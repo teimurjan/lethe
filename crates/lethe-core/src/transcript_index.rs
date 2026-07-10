@@ -233,17 +233,14 @@ pub fn codex_session_files() -> Vec<PathBuf> {
     out
 }
 
-/// Every `*.jsonl` directly inside a directory (non-recursive).
+/// Every `*.jsonl` under a directory, recursively. Claude Code nests
+/// subagent transcripts in `<session-id>/subagents/*.jsonl`, so a
+/// non-recursive scan would miss those memories.
 #[must_use]
-pub fn jsonl_in(dir: &Path) -> Vec<PathBuf> {
-    let Ok(entries) = fs::read_dir(dir) else {
-        return Vec::new();
-    };
-    entries
-        .flatten()
-        .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl"))
-        .collect()
+pub fn jsonl_recursive(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    walk_jsonl(dir, &mut out);
+    out
 }
 
 fn walk_jsonl(dir: &Path, out: &mut Vec<PathBuf>) {
@@ -268,7 +265,7 @@ fn claude_files_for(project_root: &Path) -> Vec<PathBuf> {
     let mut seen: HashSet<PathBuf> = HashSet::new();
     let mut out = Vec::new();
     for root in worktree_roots(project_root) {
-        for path in jsonl_in(&projects.join(path_to_claude_slug(&root))) {
+        for path in jsonl_recursive(&projects.join(path_to_claude_slug(&root))) {
             if seen.insert(path.clone()) {
                 out.push(path);
             }

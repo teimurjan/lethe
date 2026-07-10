@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 use crate::db::MemoryDb;
 use crate::registry::{self, ProjectEntry};
 use crate::transcript_index::{
-    self, claude_config_dir, claude_project_dirs, codex_session_files, jsonl_in,
+    self, claude_config_dir, claude_project_dirs, codex_session_files, jsonl_recursive,
     path_to_claude_slug, read_cwd, Source,
 };
 
@@ -167,9 +167,10 @@ pub struct StaleTranscript {
 pub fn scan_stale_transcripts() -> Vec<StaleTranscript> {
     let mut out = Vec::new();
 
-    // Claude: one candidate per project folder.
+    // Claude: one candidate per project folder (transcripts may nest in
+    // <session-id>/subagents/, so scan recursively).
     for dir in claude_project_dirs() {
-        let files = jsonl_in(&dir);
+        let files = jsonl_recursive(&dir);
         let mut cwd: Option<String> = None;
         let mut has_memories = false;
         for f in &files {
@@ -303,20 +304,20 @@ fn prune_empty_dirs(root: &Path) {
 mod tests {
     use super::*;
     use std::io::Write;
-    use std::sync::{Mutex, MutexGuard};
+    use std::sync::MutexGuard;
     use tempfile::tempdir;
-
-    // These tests mutate process-global env (HOME / CLAUDE_CONFIG_DIR /
-    // CODEX_HOME); serialize them.
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     struct EnvGuard {
         _lock: MutexGuard<'static, ()>,
         keys: Vec<(&'static str, Option<String>)>,
     }
     impl EnvGuard {
+        // Serialized against every other HOME-mutating test via the
+        // shared crate lock (these also set CLAUDE_CONFIG_DIR/CODEX_HOME).
         fn set(keys: &[(&'static str, &Path)]) -> Self {
-            let lock = ENV_LOCK.lock().unwrap_or_else(|p| p.into_inner());
+            let lock = crate::TEST_HOME_LOCK
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
             let mut saved = Vec::new();
             for (k, v) in keys {
                 saved.push((*k, std::env::var(k).ok()));
@@ -387,6 +388,38 @@ mod tests {
         assert!(
             !stale.iter().any(|s| s.path.ends_with("alive")),
             "alive project must not be flagged"
+        );
+    }
+
+    #[test]
+    fn scan_counts_subagent_transcripts_in_subdirs() {
+        let home = tempdir().unwrap();
+        let cfg = tempdir().unwrap();
+        let _g = EnvGuard::set(&[("HOME", home.path()), ("CLAUDE_CONFIG_DIR", cfg.path())]);
+        let live_repo = tempdir().unwrap();
+        let live = live_repo.path().to_string_lossy();
+
+        // A project folder with NO top-level jsonl, only a subagent
+        // transcript nested in <session-id>/subagents/. Recursion must
+        // find it → the folder has memories → not flagged.
+        let sub = cfg
+            .path()
+            .join("projects")
+            .join("nested")
+            .join("sess-1")
+            .join("subagents");
+        write(
+            &sub.join("agent-x.jsonl"),
+            &format!(
+                "{{\"type\":\"user\",\"uuid\":\"u1\",\"sessionId\":\"a\",\"cwd\":\"{live}\",\"message\":{{\"role\":\"user\",\"content\":[{{\"type\":\"text\",\"text\":\"hi\"}}]}}}}\n\
+                 {{\"type\":\"assistant\",\"sessionId\":\"a\",\"message\":{{\"role\":\"assistant\",\"content\":[{{\"type\":\"text\",\"text\":\"yo\"}}]}}}}\n"
+            ),
+        );
+
+        let stale = scan_stale_transcripts();
+        assert!(
+            !stale.iter().any(|s| s.path.ends_with("nested")),
+            "folder with subagent memories must not be flagged: {stale:?}"
         );
     }
 

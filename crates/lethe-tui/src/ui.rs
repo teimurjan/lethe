@@ -59,71 +59,127 @@ fn centered_rect(w: u16, h: u16, area: Rect) -> Rect {
 fn draw_overlay(frame: &mut Frame<'_>, area: Rect, app: &App) {
     use crate::app::Overlay;
     match app.overlay.as_ref() {
-        Some(Overlay::Actions(cursor)) => {
-            let items: Vec<ListItem> = crate::app::ACTIONS
-                .iter()
-                .enumerate()
-                .map(|(i, label)| {
-                    let marker = if i == *cursor { "▸ " } else { "  " };
-                    let style = if i == *cursor {
-                        Style::default().add_modifier(Modifier::BOLD)
-                    } else {
-                        Style::default().fg(Color::Gray)
-                    };
-                    ListItem::new(Line::from(Span::styled(format!("{marker}{label}"), style)))
-                })
-                .collect();
-            let w = 40u16;
-            let h = crate::app::ACTIONS.len() as u16 + 2;
-            let rect = centered_rect(w, h, area);
-            frame.render_widget(Clear, rect);
-            frame.render_widget(List::new(items).block(pane_block("Actions", true)), rect);
-        }
-        Some(Overlay::Confirm(c)) => {
-            let mut lines: Vec<Line<'_>> = Vec::new();
-            for l in &c.lines {
-                lines.push(Line::from(l.clone()));
-            }
-            let width = c
-                .lines
-                .iter()
-                .map(|l| l.chars().count())
-                .chain(std::iter::once(c.title.chars().count()))
-                .max()
-                .unwrap_or(20)
-                .clamp(24, 72) as u16
-                + 4;
-            let h = c.lines.len() as u16 + 2;
-            let rect = centered_rect(width, h, area);
-            frame.render_widget(Clear, rect);
-            frame.render_widget(
-                Paragraph::new(lines)
-                    .block(pane_block(&c.title, true))
-                    .wrap(Wrap { trim: false }),
-                rect,
-            );
-        }
-        Some(Overlay::Busy(label)) => {
-            let body = Line::from(vec![
-                Span::styled(
-                    spinner_frame(),
-                    Style::default()
-                        .fg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD),
-                ),
-                Span::raw("  "),
-                Span::raw(label.clone()),
-            ]);
-            let w = (label.chars().count() as u16 + 8).clamp(20, 60);
-            let rect = centered_rect(w, 3, area);
-            frame.render_widget(Clear, rect);
-            frame.render_widget(
-                Paragraph::new(body).block(pane_block("Working", true)),
-                rect,
-            );
-        }
+        Some(Overlay::Actions(cursor)) => draw_actions_overlay(frame, area, *cursor),
+        Some(Overlay::Confirm(c)) => draw_confirm_overlay(frame, area, c),
+        Some(Overlay::Cleanup(list)) => draw_cleanup_overlay(frame, area, list),
+        Some(Overlay::Busy(label)) => draw_busy_overlay(frame, area, label),
         None => {}
     }
+}
+
+fn draw_actions_overlay(frame: &mut Frame<'_>, area: Rect, cursor: usize) {
+    let items: Vec<ListItem> = crate::app::ACTIONS
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let marker = if i == cursor { "▸ " } else { "  " };
+            let style = if i == cursor {
+                Style::default().add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            ListItem::new(Line::from(Span::styled(format!("{marker}{label}"), style)))
+        })
+        .collect();
+    let h = crate::app::ACTIONS.len() as u16 + 2;
+    let rect = centered_rect(40, h, area);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(List::new(items).block(pane_block("Actions", true)), rect);
+}
+
+fn draw_confirm_overlay(frame: &mut Frame<'_>, area: Rect, c: &crate::app::Confirm) {
+    let lines: Vec<Line<'_>> = c.lines.iter().map(|l| Line::from(l.clone())).collect();
+    let width = c
+        .lines
+        .iter()
+        .map(|l| l.chars().count())
+        .chain(std::iter::once(c.title.chars().count()))
+        .max()
+        .unwrap_or(20)
+        .clamp(24, 72) as u16
+        + 4;
+    let rect = centered_rect(width, c.lines.len() as u16 + 2, area);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(pane_block(&c.title, true))
+            .wrap(Wrap { trim: false }),
+        rect,
+    );
+}
+
+fn draw_cleanup_overlay(frame: &mut Frame<'_>, area: Rect, list: &crate::app::CleanupList) {
+    let sel = list.selected.iter().filter(|s| **s).count();
+    let bytes: u64 = list
+        .items
+        .iter()
+        .zip(&list.selected)
+        .filter(|(_, s)| **s)
+        .map(|(it, _)| it.bytes)
+        .sum();
+    let title = format!(
+        "Clean up — {sel}/{} selected, {}",
+        list.items.len(),
+        lethe_core::maintenance::human_bytes(bytes)
+    );
+
+    let rect = centered_rect(78, (list.items.len() as u16 + 4).min(area.height), area);
+    let inner_rows = rect.height.saturating_sub(2) as usize; // minus borders
+    let body_rows = inner_rows.saturating_sub(1).max(1); // reserve 1 for hint
+                                                         // Scroll so the cursor stays visible.
+    let start = list
+        .cursor
+        .saturating_sub(body_rows.saturating_sub(1))
+        .min(list.items.len().saturating_sub(body_rows));
+    let mut lines: Vec<Line<'_>> = Vec::new();
+    for (i, it) in list.items.iter().enumerate().skip(start).take(body_rows) {
+        let checked = list.selected.get(i).copied().unwrap_or(false);
+        let name = it.path.file_name().map_or_else(
+            || it.path.to_string_lossy().into_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        let row = format!(
+            "{} {:<11} {:>9}  {}",
+            if checked { "[x]" } else { "[ ]" },
+            it.reason.label(),
+            lethe_core::maintenance::human_bytes(it.bytes),
+            name,
+        );
+        let style = if i == list.cursor {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else if checked {
+            Style::default()
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        lines.push(Line::from(Span::styled(row, style)));
+    }
+    lines.push(Line::from(Span::styled(
+        "space toggle · a all · ⏎ delete selected · esc cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+    frame.render_widget(Clear, rect);
+    frame.render_widget(Paragraph::new(lines).block(pane_block(&title, true)), rect);
+}
+
+fn draw_busy_overlay(frame: &mut Frame<'_>, area: Rect, label: &str) {
+    let body = Line::from(vec![
+        Span::styled(
+            spinner_frame(),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::raw(label.to_owned()),
+    ]);
+    let w = (label.chars().count() as u16 + 8).clamp(20, 60);
+    let rect = centered_rect(w, 3, area);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Paragraph::new(body).block(pane_block("Working", true)),
+        rect,
+    );
 }
 
 fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {

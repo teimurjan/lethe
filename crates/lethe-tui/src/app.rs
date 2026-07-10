@@ -12,7 +12,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use lethe_core::db::MemoryDb;
-use lethe_core::maintenance::{self, StaleTranscript};
+use lethe_core::maintenance::{self, StaleReason, StaleTranscript};
 use lethe_core::markdown_store::parse_anchor;
 use lethe_core::registry::{self, ProjectEntry};
 
@@ -115,7 +115,6 @@ pub const ACTIONS: [&str; 5] = [
 pub enum PendingAction {
     DeleteProject(ProjectEntry),
     DeleteEmpty(Vec<ProjectEntry>),
-    CleanupStale(Vec<StaleTranscript>),
 }
 
 #[derive(Debug)]
@@ -127,6 +126,40 @@ pub struct Confirm {
     pub allow_transcripts: bool,
 }
 
+/// A reviewable checklist of stale transcripts to delete.
+#[derive(Debug)]
+pub struct CleanupList {
+    pub items: Vec<StaleTranscript>,
+    pub selected: Vec<bool>,
+    pub cursor: usize,
+}
+
+impl CleanupList {
+    fn new(items: Vec<StaleTranscript>) -> Self {
+        // Pre-select only the confident "repo gone" items; leave the
+        // "no memories" ones (a live repo may just have pruned its
+        // transcripts) for the user to opt into.
+        let selected = items
+            .iter()
+            .map(|s| s.reason == StaleReason::RepoGone)
+            .collect();
+        Self {
+            items,
+            selected,
+            cursor: 0,
+        }
+    }
+
+    fn selected_items(&self) -> Vec<StaleTranscript> {
+        self.items
+            .iter()
+            .zip(&self.selected)
+            .filter(|(_, s)| **s)
+            .map(|(it, _)| it.clone())
+            .collect()
+    }
+}
+
 /// Modal overlay state. `None` = the normal browse view.
 #[derive(Debug)]
 pub enum Overlay {
@@ -134,6 +167,8 @@ pub enum Overlay {
     Actions(usize),
     /// Confirm a destructive action.
     Confirm(Confirm),
+    /// Reviewable multi-select list of stale transcripts.
+    Cleanup(CleanupList),
     /// A background worker is running; the string is the status label.
     Busy(String),
 }
@@ -425,7 +460,7 @@ impl App {
                         self.overlay = None;
                         self.show_toast("nothing to clean up", ToastKind::Info);
                     } else {
-                        self.overlay = Some(Overlay::Confirm(cleanup_confirm(items)));
+                        self.overlay = Some(Overlay::Cleanup(CleanupList::new(items)));
                     }
                 }
                 WorkerOutput::Deleted(r) => {
@@ -491,6 +526,38 @@ impl App {
                 KeyCode::Char('y') => self.confirm(false),
                 KeyCode::Char('t') if c.allow_transcripts => self.confirm(true),
                 KeyCode::Esc | KeyCode::Char('n') => self.overlay = None,
+                _ => {}
+            },
+            Some(Overlay::Cleanup(list)) => match code {
+                KeyCode::Up => {
+                    list.cursor = list.cursor.saturating_sub(1);
+                }
+                KeyCode::Down => {
+                    list.cursor = (list.cursor + 1).min(list.items.len().saturating_sub(1));
+                }
+                KeyCode::Char(' ') => {
+                    if let Some(sel) = list.selected.get_mut(list.cursor) {
+                        *sel = !*sel;
+                    }
+                }
+                KeyCode::Char('a') => {
+                    // Toggle all: select all unless everything is already
+                    // selected, in which case clear.
+                    let all = list.selected.iter().all(|s| *s);
+                    for s in &mut list.selected {
+                        *s = !all;
+                    }
+                }
+                KeyCode::Enter => {
+                    let chosen = list.selected_items();
+                    if chosen.is_empty() {
+                        self.show_toast("nothing selected", ToastKind::Info);
+                    } else {
+                        self.start_busy("deleting");
+                        let _ = self.search_tx.send(WorkerRequest::DeleteStale(chosen));
+                    }
+                }
+                KeyCode::Esc => self.overlay = None,
                 _ => {}
             },
             Some(Overlay::Busy(_)) => {
@@ -597,10 +664,6 @@ impl App {
                 }
                 self.after_project_delete(total);
             }
-            PendingAction::CleanupStale(items) => {
-                self.start_busy("deleting");
-                let _ = self.search_tx.send(WorkerRequest::DeleteStale(items));
-            }
         }
     }
 
@@ -622,37 +685,6 @@ impl App {
             ),
             ToastKind::Info,
         );
-    }
-}
-
-/// Build the confirm dialog for a set of stale transcripts.
-fn cleanup_confirm(items: Vec<StaleTranscript>) -> Confirm {
-    let bytes: u64 = items.iter().map(|s| s.bytes).sum();
-    let mut lines: Vec<String> = items
-        .iter()
-        .take(12)
-        .map(|s| {
-            let name = s.path.file_name().map_or_else(
-                || s.path.to_string_lossy().into_owned(),
-                |n| n.to_string_lossy().into_owned(),
-            );
-            format!("• {} ({})", name, s.reason.label())
-        })
-        .collect();
-    if items.len() > 12 {
-        lines.push(format!("… and {} more", items.len() - 12));
-    }
-    lines.push(String::new());
-    lines.push("y = delete from disk (irreversible)   esc = cancel".into());
-    Confirm {
-        title: format!(
-            "Delete {} transcript(s), reclaim {}?",
-            items.len(),
-            maintenance::human_bytes(bytes)
-        ),
-        lines,
-        action: PendingAction::CleanupStale(items),
-        allow_transcripts: false,
     }
 }
 
