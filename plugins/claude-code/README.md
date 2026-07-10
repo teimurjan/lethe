@@ -38,6 +38,7 @@ Invoked by the skills; also usable directly.
 ```
 lethe --version
 lethe index                     # index this project's transcripts now (also warms a fresh clone)
+lethe index --all               # reindex every registered project at once
 lethe search "QUERY" --top-k 5
 lethe search "QUERY" --json-output
 lethe search "QUERY" --all      # across all registered projects

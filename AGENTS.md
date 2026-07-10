@@ -55,6 +55,7 @@ uv run python research_playground/rust_migration/latency.py --compare
 # CLI surface (the `lethe` binary)
 lethe                                    # no args → TUI (in a terminal)
 lethe index                              # index this project's transcripts
+lethe index --all                        # reindex every registered project
 lethe search "query" --top-k 5           # reindexes changed transcripts first
 lethe search "query" --all --top-k 5     # all registered projects (per-project read-only)
 lethe projects list|add|remove|prune

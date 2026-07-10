@@ -38,6 +38,9 @@ struct Cli {
 enum Cmd {
     /// Index this project's agent transcripts into the store.
     Index {
+        /// Reindex every registered project, not just the current one.
+        #[arg(long)]
+        all: bool,
         #[arg(long)]
         json_output: bool,
         #[arg(long)]
@@ -153,9 +156,10 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
     };
     match cmd {
         Cmd::Index {
+            all,
             json_output,
             no_register,
-        } => commands::index::run(root, json_output, no_register),
+        } => commands::index::run(root, all, json_output, no_register),
         Cmd::Search {
             query,
             top_k,
