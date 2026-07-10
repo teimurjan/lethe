@@ -7,7 +7,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::app::{App, Scope, Stats, ToastKind};
+use crate::app::{App, Stats, ToastKind};
 
 const FOOTER: &str =
     "type to search · ↑/↓ browse · ⏎ open · esc back · ^c copy · ^d delete project · ^q quit";
@@ -61,23 +61,26 @@ fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 
 fn draw_projects(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let title = format!("Projects ({})", app.projects.len());
-    let block = pane_block(&title, app.nav_projects());
+    // Arrows always drive this pane, so it's always the active one.
+    let block = pane_block(&title, true);
 
-    let current_slug = match &app.scope {
-        Scope::Single(e) => Some(e.slug.as_str()),
-        Scope::AllProjects => None,
-    };
+    // Names get a 2-col marker prefix; trim the rest to the pane width
+    // with an ellipsis so long names don't overflow or wrap.
+    let name_room = (area.width.saturating_sub(2) as usize)
+        .saturating_sub(2)
+        .max(4);
     let items: Vec<ListItem> = app
         .projects
         .iter()
-        .map(|p| {
-            let name = crate::app::project_name(&p.root);
-            let label = if Some(p.slug.as_str()) == current_slug {
-                format!("▸ {name}")
+        .enumerate()
+        .map(|(i, p)| {
+            let name = truncate(&crate::app::project_name(&p.root), name_room);
+            let marker = if i == app.project_selection {
+                "▸ "
             } else {
-                format!("  {name}")
+                "  "
             };
-            ListItem::new(Line::from(label))
+            ListItem::new(Line::from(format!("{marker}{name}")))
         })
         .collect();
 
@@ -121,9 +124,9 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     } else {
         format!("{noun} ({n})")
     };
-    // The results/memory list is "active" (arrows drive it) whenever
-    // we're not browsing the project list.
-    let block = pane_block(&title, !app.nav_projects());
+    // Passive pane: memories aren't a focus target, so it's never drawn
+    // as active.
+    let block = pane_block(&title, false);
 
     if app.searching {
         let spin = spinner_frame();
@@ -158,8 +161,8 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     }
 
     if app.results.is_empty() {
-        let msg = if app.nav_projects() {
-            "↑/↓ select a project · ⏎ to open"
+        let msg = if app.projects.is_empty() {
+            "no projects — run `lethe index` in a repo"
         } else if app.browsing {
             "no memories in this project"
         } else {
@@ -183,12 +186,9 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .map(|(idx, r)| result_row(idx, r, top_score, interior))
         .collect();
 
-    let mut state = ListState::default();
-    state.select(Some(app.result_selection.min(n - 1)));
-    let list = List::new(items)
-        .block(block)
-        .highlight_style(Style::default().add_modifier(Modifier::REVERSED));
-    frame.render_stateful_widget(list, area, &mut state);
+    // No selection highlight — the memory list is a passive display.
+    let list = List::new(items).block(block);
+    frame.render_widget(list, area);
 }
 
 fn draw_sources(frame: &mut Frame<'_>, area: Rect, app: &App) {

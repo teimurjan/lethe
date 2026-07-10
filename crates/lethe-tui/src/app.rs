@@ -1,12 +1,10 @@
 //! TUI app state.
 //!
-//! Interaction model (no focus panes, no Tab): typing always edits the
-//! search box, and the current [`Scope`] decides what the arrow keys
-//! drive. While browsing the project list (all-projects scope, no
-//! results) arrows move projects, Enter opens one, and Ctrl+D deletes
-//! one. Inside a project, arrows move its memory list (all memories by
-//! default, or search hits), Ctrl+C copies the highlighted one, and Esc
-//! goes back to the project list.
+//! Interaction model (no focus panes, no Tab): arrows always move the
+//! project sidebar and load the highlighted project's memories into the
+//! passive right pane. Typing edits the search box; Enter searches within
+//! the current project; Esc clears the search back to all memories. Ctrl+C
+//! copies the top memory/hit, Ctrl+D deletes the highlighted project.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -144,7 +142,7 @@ impl App {
         let projects = registry::load();
         let (search_tx, search_rx) = search_worker::spawn();
         let stats_rx = spawn_stats(projects.clone());
-        Self {
+        let mut app = Self {
             scope: Scope::AllProjects,
             projects,
             project_selection: 0,
@@ -163,27 +161,33 @@ impl App {
             stats_rx,
             search_tx,
             search_rx,
-        }
+        };
+        // Show the first project's memories immediately.
+        app.open_current();
+        app
     }
 
-    /// True while browsing the project list — all-projects scope with no
-    /// results on the right. Arrows move projects here; otherwise they
-    /// move the memory/results list. This is the whole "focus" model.
-    pub fn nav_projects(&self) -> bool {
-        matches!(self.scope, Scope::AllProjects) && self.results.is_empty()
+    /// Point the scope at the highlighted project and load all its
+    /// memories. Called whenever the project selection changes so the
+    /// right pane always reflects the sidebar.
+    fn open_current(&mut self) {
+        let Some(p) = self.projects.get(self.project_selection).cloned() else {
+            self.scope = Scope::AllProjects;
+            self.results.clear();
+            self.detail = None;
+            return;
+        };
+        self.scope = Scope::Single(p);
+        self.load_all_memories();
     }
 
-    /// Back one level: leave any single-project scope and clear whatever's
-    /// on the right (memories, search hits, detail), returning to the
-    /// project list. A no-op when already there.
+    /// Esc: clear the search box and show the current project's full
+    /// memory list again.
     pub fn escape(&mut self) {
         self.pending_delete = None;
-        self.scope = Scope::AllProjects;
-        self.results.clear();
-        self.detail = None;
-        self.browsing = false;
         self.search_input.clear();
         self.last_query.clear();
+        self.open_current();
     }
 
     pub fn show_toast(&mut self, msg: impl Into<String>, kind: ToastKind) {
@@ -202,51 +206,29 @@ impl App {
         }
     }
 
-    /// Arrow keys: move the project list in all-projects scope, else the
-    /// memory list.
+    /// Arrows always move the project sidebar and load that project's
+    /// memories — there is no separate "focus". The memory list is a
+    /// passive display, so arrows never move within it.
     pub fn arrow(&mut self, delta: isize) {
         self.pending_delete = None;
-        if self.nav_projects() {
-            if self.projects.is_empty() {
-                return;
-            }
-            let len = self.projects.len() as isize;
-            let next = (self.project_selection as isize + delta).rem_euclid(len);
-            self.project_selection = next as usize;
-        } else {
-            if self.results.is_empty() {
-                return;
-            }
-            let len = self.results.len() as isize;
-            let next = (self.result_selection as isize + delta).rem_euclid(len);
-            self.result_selection = next as usize;
-            self.refresh_detail_from_highlight();
+        if self.projects.is_empty() {
+            return;
         }
+        let len = self.projects.len() as isize;
+        self.project_selection = (self.project_selection as isize + delta).rem_euclid(len) as usize;
+        self.search_input.clear();
+        self.open_current();
     }
 
-    /// Enter: run a search when the box has text; otherwise open the
-    /// highlighted project (from the project list) or reload all its
-    /// memories (already inside one).
+    /// Enter: run a search within the current project when the box has
+    /// text; otherwise reload all its memories.
     pub fn on_enter(&mut self) {
         self.pending_delete = None;
-        if !self.search_input.trim().is_empty() {
+        if self.search_input.trim().is_empty() {
+            self.open_current();
+        } else {
             self.submit_search();
-        } else if self.nav_projects() {
-            self.open_selected_project();
-        } else if matches!(self.scope, Scope::Single(_)) {
-            self.load_all_memories();
         }
-    }
-
-    fn open_selected_project(&mut self) {
-        let Some(p) = self.projects.get(self.project_selection).cloned() else {
-            return;
-        };
-        self.scope = Scope::Single(p);
-        self.search_input.clear();
-        self.last_query.clear();
-        self.detail = None;
-        self.load_all_memories();
     }
 
     /// Load every memory of the current single-scope project (newest DB
@@ -284,9 +266,6 @@ impl App {
     /// Arm / confirm deletion of the highlighted project. First press
     /// arms (toast); second confirms.
     pub fn request_or_confirm_delete(&mut self) {
-        if !self.nav_projects() {
-            return;
-        }
         let Some(p) = self.projects.get(self.project_selection) else {
             return;
         };
@@ -320,13 +299,9 @@ impl App {
         } else {
             self.project_selection = self.project_selection.min(self.projects.len() - 1);
         }
-        // If the deleted project was open, pop back to the list.
-        if matches!(&self.scope, Scope::Single(e) if e.slug == p.slug) {
-            self.scope = Scope::AllProjects;
-            self.results.clear();
-            self.detail = None;
-            self.browsing = false;
-        }
+        // Reflect the new selection (or clear when nothing's left).
+        self.search_input.clear();
+        self.open_current();
         self.show_toast(format!("deleted '{name}'"), ToastKind::Info);
     }
 
