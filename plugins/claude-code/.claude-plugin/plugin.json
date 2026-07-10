@@ -1,6 +1,6 @@
 {
   "name": "lethe",
-  "version": "0.16.0",
+  "version": "1.0.0",
   "description": "Persistent memory across Claude Code sessions. Indexes your transcripts directly, hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting.",
   "author": {
     "name": "Teimur Gasanov"

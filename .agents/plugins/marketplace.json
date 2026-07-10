@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "lethe",
-      "version": "0.16.0",
+      "version": "1.0.0",
       "description": "Persistent memory across Codex CLI sessions — indexes your transcripts directly, hybrid BM25+dense retrieval, clustered retrieval-induced forgetting.",
       "source": {
         "source": "local",

@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.0.0](https://github.com/teimurjan/lethe/compare/lethe-plugins-v0.16.0...lethe-plugins-v1.0.0) (2026-07-10)
+
+
+### ⚠ BREAKING CHANGES
+
+* Skills-only plugins — the `recall` / `recall-global` skills search a global transcript index. No hooks, no LLM summarization, nothing written into your repos.
+
 ## [0.16.0](https://github.com/teimurjan/lethe/compare/lethe-plugins-v0.15.0...lethe-plugins-v0.16.0) (2026-05-29)
 
 
