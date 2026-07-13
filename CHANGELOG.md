@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.15.0](https://github.com/teimurjan/lethe/compare/lethe-v0.14.0...lethe-v0.15.0) (2026-07-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* index transcripts directly, offline dedupe, background auto-index
+
+### Features
+
+* **codex:** Marketplace install, drop install.sh ([#43](https://github.com/teimurjan/lethe/issues/43)) ([179eb2c](https://github.com/teimurjan/lethe/commit/179eb2cb8c93d1a2067d2023bc4bcbdc83565b75))
+* Index transcripts directly, offline dedupe, background auto-index ([faeef99](https://github.com/teimurjan/lethe/commit/faeef99a69e177c32a87f01dec8727ee7d368761))
+
 ## [0.14.0](https://github.com/teimurjan/lethe/compare/lethe-v0.13.0...lethe-v0.14.0) (2026-05-22)
 
 
