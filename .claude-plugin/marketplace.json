@@ -4,14 +4,14 @@
     "name": "Teimur Gasanov"
   },
   "metadata": {
-    "description": "Self-improving memory for Claude Code — indexes your transcripts directly, hybrid retrieval, RIF",
-    "version": "1.0.0"
+    "description": "Self-improving memory for Claude Code — markdown-first, hybrid retrieval, RIF, optional LLM enrichment",
+    "version": "0.16.0"
   },
   "plugins": [
     {
       "name": "lethe",
-      "description": "Persistent memory across Claude Code sessions — indexes your transcripts directly, hybrid BM25+dense retrieval, clustered retrieval-induced forgetting.",
-      "version": "1.0.0",
+      "description": "Persistent memory across Claude Code sessions — hybrid BM25+dense retrieval, clustered retrieval-induced forgetting, optional Haiku enrichment.",
+      "version": "0.16.0",
       "source": "./plugins/claude-code",
       "author": {
         "name": "Teimur Gasanov"
@@ -23,7 +23,7 @@
         "memory",
         "rif",
         "hybrid-retrieval",
-        "transcripts",
+        "markdown",
         "longmemeval"
       ]
     }
