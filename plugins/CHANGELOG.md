@@ -1,11 +1,5 @@
 # Changelog
 
-## Unreleased
-
-### Features
-
-* Background freshness hook (Claude Code + Codex) — a throttled, detached `UserPromptSubmit` hook runs `lethe index --all && lethe dedupe --all` (at most once every 15 min, `LETHE_REFRESH_INTERVAL` to tune) so cross-project `recall-global` stays current. Single-flighted, non-blocking, and a no-op when `lethe` isn't on `PATH`. The plugins are no longer strictly hook-free.
-
 ## [1.0.0](https://github.com/teimurjan/lethe/compare/lethe-plugins-v0.16.0...lethe-plugins-v1.0.0) (2026-07-10)
 
 
