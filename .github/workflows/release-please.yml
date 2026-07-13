@@ -38,13 +38,12 @@ permissions:
 jobs:
   release-please:
     runs-on: ubuntu-latest
-    # Multi-package manifest: the action emits per-path outputs
-    # (`<path>--release_created` / `<path>--tag_name`). We only act on the
-    # core `.` package here — binaries/assets belong to `lethe-v*`, not to
-    # the independently-versioned `lethe-plugins-v*` releases.
+    # Root-package outputs are unprefixed. We only act on the core package
+    # here — binaries/assets belong to `lethe-v*`, not to the independently
+    # versioned `lethe-plugins-v*` releases.
     outputs:
-      release_created: ${{ steps.release.outputs['.--release_created'] }}
-      tag_name:        ${{ steps.release.outputs['.--tag_name'] }}
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name:        ${{ steps.release.outputs.tag_name }}
     steps:
       - id: release
         uses: googleapis/release-please-action@v4
