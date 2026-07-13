@@ -594,6 +594,33 @@ Reproducer: `research_playground/late_chunking_modal/{prep_late.py, README.md}`.
 
 ---
 
+### Implementation note: offline dedupe compaction + retrieval-time diversity guard
+
+Shipped an offline `lethe dedupe` compaction (SemDeDup-style: cluster entry embeddings, union-find near-duplicates within each cluster at cosine ≥ τ, elect a canonical, merge RIF metadata, record absorbed→canonical aliases so a later re-index can't resurrect them). Alongside it we prototyped a **retrieval-time diversity guard**: after rerank, demote any hit within cosine ≥ τ of a higher-ranked already-kept hit (MMR-lite). Both were benchmarked through the *production* `MemoryStore` (RIF + cross-encoder rerank), not raw primitives — a new `rif-eval` subcommand ingests the corpus into a real store and evaluates the full pipeline end-to-end.
+
+LongMemEval S, 50-query subsample, MiniLM-L6 bi + MiniLM-L6 reranker, τ=0.95, 30 clusters, cold RIF (no burn-in). The after-compaction arms remap qrels through the alias table so an absorbed gold turn still scores when its canonical is retrieved.
+
+| Arm | NDCG@10 | R@10 | Δ NDCG |
+|-----|---------|------|--------|
+| baseline | 0.3444 | 0.480 | — |
+| **+dedupe (offline compaction)** | **0.3720** | 0.480 | **+2.75pp** |
+| +diversity guard | 0.2950 | 0.387 | −4.94pp |
+| +dedupe + diversity | 0.3720 | 0.480 | +2.75pp |
+
+Compaction merged 11,644 / 199,509 turns (−5.8%) into 8,883 canonicals.
+
+Findings:
+
+1. **Offline dedupe is recall-safe and NDCG-positive.** +2.75pp NDCG (+8% rel), Recall@10 dead flat — the alias remap confirms no gold turns are lost when a near-duplicate is absorbed. Same direction as checkpoint 7's write-time dedup (+16.5% on a weaker baseline); this is that lever applied as offline compaction of the global index. *Methodology caveat:* the bench bulk-ingests bypassing the write-time near-duplicate gate, so the baseline retains dups a real `lethe index` already drops at write time — the dedupe arm here approximates that write-gate cleanup. The novel result is that compaction-with-metadata-merge is recall-safe, not that it beats the production write path. (On a real production index the write gate has already removed ≥0.95 pairs, so `lethe dedupe` finds ~0 groups in steady state — verified on a live 38-chunk index.)
+2. **The retrieval-time diversity guard is net-negative and was cut.** −4.94pp NDCG, −9.3pp R@10. On conversational memory a question's gold evidence spans *near-identical* turns across sessions; the guard can't distinguish a redundant duplicate from genuinely-relevant similar evidence, so it demotes the second gold out of the top-10. Same shape as checkpoint 14 (rescue list) and the RIF NFCorpus regression — a mechanism that looks principled in isolation actively hurts because it fights the evidence structure of the workload.
+3. **On a compacted index the guard is a no-op** (`+dedupe+diversity` == `+dedupe` exactly): dedupe already removed the ≥τ pairs, leaving nothing to demote. Its only effect is on the un-compacted index, where it's harmful. Removed entirely (`diversify_by_embedding`, `StoreConfig.diversity_threshold`, and the retrieve-time call).
+
+**Decision:** ship offline `lethe dedupe` (opt-in command), drop the diversity guard. This is the fourth "principled-but-workload-hostile" negative — after global RIF at scale, the rescue list, and NFCorpus — and the recurring lesson is the same: near-duplicate *relevant* evidence is a feature of conversational memory, not noise to be suppressed at query time.
+
+Reproducer: `crates/lethe-benchmark/src/main.rs::cmd_rif_eval` via `lethe-benchmark rif-eval --sample-limit N --threshold T`. Memory-only corpus ingest (`MemoryStore::ingest_ephemeral`) sidesteps a 200k-row DuckDB write that OOMs. Raw output: `/tmp/rifeval.json`.
+
+---
+
 ## What's next
 
 Four open directions, in rough priority order. Reranker swap, bi-encoder swap, rerank-pool widening, **and regex multi-field BM25** all drop off the candidate list — the model-swap experiment, the prior `k_deep` re-calibration, and the multi-field BM25 ablation all confirm none of them is the limiter on this corpus. The remaining levers are either expensive (LLM enrichment) or scope-defining (cross-dataset replication, head-to-head benchmarks).

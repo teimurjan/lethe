@@ -251,15 +251,14 @@ fn days_to_ymd(z: i64) -> (i64, u32, u32) {
 mod tests {
     use super::*;
     use std::path::PathBuf;
-    use std::sync::{Mutex, MutexGuard};
+    use std::sync::MutexGuard;
     use tempfile::tempdir;
 
     /// Tests in this module mutate the process-global `HOME` env var
     /// to redirect the registry away from the user's real `~/.lethe/`.
-    /// `cargo test` parallelizes by default, so a shared mutex
-    /// serializes them. The guard's drop order also restores the prior
-    /// `HOME` value via `RestoreHome`.
-    static HOME_LOCK: Mutex<()> = Mutex::new(());
+    /// Serialized against every other HOME-mutating test via the shared
+    /// crate lock. The guard's drop restores the prior `HOME`.
+    use crate::TEST_HOME_LOCK as HOME_LOCK;
 
     struct RestoreHome {
         prev: Option<String>,

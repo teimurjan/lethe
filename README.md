@@ -19,7 +19,7 @@ A memory store for LLM agents that **gets better the more you use it**. Hybrid B
 /plugin install lethe
 ```
 
-Per-project memory in `.lethe/memory/YYYY-MM-DD.md`, recall via skill + session-start hook. See [plugins/claude-code/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/claude-code/README.md).
+Recall via skills — lethe indexes your Claude Code transcripts directly and writes nothing into your repos. See [plugins/claude-code/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/claude-code/README.md).
 
 ### Codex CLI
 
@@ -28,7 +28,7 @@ brew tap teimurjan/lethe && brew install lethe   # lethe + lethe-codex binaries
 codex plugin marketplace add teimurjan/lethe
 ```
 
-Then run `codex`, open `/plugins`, and install **lethe** — it wires the hooks and the `recall` / `recall-global` skills into Codex automatically. See [plugins/codex/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/codex/README.md).
+Then run `codex`, open `/plugins`, and install **lethe** — it wires the `recall` / `recall-global` skills into Codex automatically. See [plugins/codex/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/codex/README.md).
 
 ### CLI
 
@@ -38,7 +38,7 @@ brew install teimurjan/lethe/lethe       # or: cargo install lethe-cli
 lethe                                    # TUI
 lethe search "query" --top-k 5           # one project
 lethe search "query" --all --top-k 5     # all registered projects
-lethe seed --days 7                      # backfill from past Claude Code / Codex transcripts
+lethe index                              # index the current project's transcripts
 ```
 
 ![lethe TUI](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/tui.gif)

@@ -13,10 +13,11 @@ pub mod dedup;
 pub mod encoders;
 pub mod entry;
 pub mod error;
-pub mod fields;
 pub mod faiss_flat;
+pub mod fields;
 pub mod kmeans;
 pub mod lock;
+pub mod maintenance;
 pub mod markdown_store;
 pub mod memory_store;
 pub mod registry;
@@ -24,9 +25,17 @@ pub mod reranker;
 pub mod rif;
 pub mod rrf;
 pub mod tokenize;
+pub mod transcript_index;
+pub mod transcript_store;
 pub mod union_store;
 
 pub use error::{Error, Result};
+
+/// Process-wide lock serializing tests that mutate the global `HOME`
+/// (registry + maintenance). Different modules must share one mutex or
+/// they race on `HOME` when `cargo test` runs them in parallel.
+#[cfg(test)]
+pub(crate) static TEST_HOME_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
 /// Crate version baked from Cargo.toml.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");

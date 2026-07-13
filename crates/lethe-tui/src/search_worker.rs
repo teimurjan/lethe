@@ -1,24 +1,45 @@
-//! Background thread that owns the encoders and runs retrieval calls.
-//! The TUI thread enqueues `SearchRequest`s and drains `SearchOutput`s
-//! out-of-band so the UI never blocks during a query.
+//! Background worker that owns the encoders and runs everything that
+//! touches a project's DuckDB — retrieval, indexing, and cleanup. Keeping
+//! it single-threaded means the read-only caches it holds for search can
+//! be dropped before it opens a store read-write to index, so a writer
+//! never deadlocks against the TUI's own readers.
+//!
+//! The TUI thread enqueues [`WorkerRequest`]s and drains [`WorkerOutput`]s
+//! out-of-band so the UI never blocks.
 
 use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::Arc;
 use std::thread;
 
 use lethe_core::encoders::{BiEncoder, CrossEncoder};
+use lethe_core::maintenance::{self, Reclaimed, StaleTranscript};
 use lethe_core::memory_store::{MemoryStore, StoreConfig};
-use lethe_core::registry;
+use lethe_core::registry::{self, ProjectEntry};
 use lethe_core::rif::RifConfig;
+use lethe_core::transcript_index;
 use lethe_core::union_store::UnionStore;
-use std::sync::Arc;
 
 use crate::app::{ResultRow, Scope};
 
 #[derive(Debug)]
-pub struct SearchRequest {
+pub struct SearchQuery {
     pub query: String,
     pub scope: Scope,
     pub top_k: usize,
+}
+
+#[derive(Debug)]
+pub enum WorkerRequest {
+    Search(SearchQuery),
+    /// Index the given projects (one, or all registered).
+    Index(Vec<ProjectEntry>),
+    /// Scan Claude/Codex storage for stale transcripts.
+    Scan,
+    /// Delete the given stale transcripts from disk.
+    DeleteStale(Vec<StaleTranscript>),
+    /// Drop cached read handles so a writer (in-process or out) can open
+    /// the DuckDB. Sent before main-thread project deletion.
+    ReleaseCaches,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -27,6 +48,8 @@ pub enum Phase {
     LoadingCrossEncoder,
     LoadingIndex,
     Searching,
+    Indexing,
+    Scanning,
 }
 
 impl Phase {
@@ -36,14 +59,19 @@ impl Phase {
             Phase::LoadingCrossEncoder => "loading cross-encoder weights",
             Phase::LoadingIndex => "loading project index",
             Phase::Searching => "searching",
+            Phase::Indexing => "indexing transcripts",
+            Phase::Scanning => "scanning transcripts",
         }
     }
 }
 
 #[derive(Debug)]
-pub enum SearchOutput {
+pub enum WorkerOutput {
     Phase(Phase),
     Hits(Vec<ResultRow>),
+    Indexed { added: usize, projects: usize },
+    Scanned(Vec<StaleTranscript>),
+    Deleted(Reclaimed),
     Error(String),
 }
 
@@ -51,9 +79,9 @@ const DEFAULT_BI: &str = "all-MiniLM-L6-v2";
 const DEFAULT_CROSS: &str = "cross-encoder/ms-marco-MiniLM-L-6-v2";
 
 /// Spawn the worker. Returns the request-sender + result-receiver.
-pub fn spawn() -> (Sender<SearchRequest>, Receiver<SearchOutput>) {
-    let (req_tx, req_rx) = mpsc::channel::<SearchRequest>();
-    let (out_tx, out_rx) = mpsc::channel::<SearchOutput>();
+pub fn spawn() -> (Sender<WorkerRequest>, Receiver<WorkerOutput>) {
+    let (req_tx, req_rx) = mpsc::channel::<WorkerRequest>();
+    let (out_tx, out_rx) = mpsc::channel::<WorkerOutput>();
     thread::spawn(move || {
         let mut state = WorkerState::default();
         while let Ok(req) = req_rx.recv() {
@@ -67,10 +95,8 @@ pub fn spawn() -> (Sender<SearchRequest>, Receiver<SearchOutput>) {
 struct WorkerState {
     bi: Option<Arc<BiEncoder>>,
     cross: Option<Arc<CrossEncoder>>,
-    /// Cached union store keyed by the registered project list.
     union_cache_key: Option<String>,
     union_store: Option<UnionStore>,
-    /// Cached single-project store keyed by slug.
     single_cache_slug: Option<String>,
     single_store: Option<MemoryStore>,
 }
@@ -78,32 +104,30 @@ struct WorkerState {
 impl WorkerState {
     fn ensure_encoders(
         &mut self,
-        tx: &Sender<SearchOutput>,
+        tx: &Sender<WorkerOutput>,
     ) -> Result<(Arc<BiEncoder>, Arc<CrossEncoder>), String> {
         if self.bi.is_none() {
-            let _ = tx.send(SearchOutput::Phase(Phase::LoadingBiEncoder));
+            let _ = tx.send(WorkerOutput::Phase(Phase::LoadingBiEncoder));
             let b = BiEncoder::from_repo(DEFAULT_BI).map_err(|e| e.to_string())?;
             self.bi = Some(Arc::new(b));
         }
         if self.cross.is_none() {
-            let _ = tx.send(SearchOutput::Phase(Phase::LoadingCrossEncoder));
+            let _ = tx.send(WorkerOutput::Phase(Phase::LoadingCrossEncoder));
             let c = CrossEncoder::from_repo(DEFAULT_CROSS).map_err(|e| e.to_string())?;
             self.cross = Some(Arc::new(c));
         }
         Ok((self.bi.clone().unwrap(), self.cross.clone().unwrap()))
     }
 
-    fn config_with_dim(dim: usize) -> StoreConfig {
-        // The TUI is a long-running interactive UI: opening read-only
-        // ensures it can never accidentally mutate the index, and lets
-        // parallel `lethe search --read-only` (or `lethe search --all`)
-        // invocations stack — DuckDB permits many shared-lock readers
-        // concurrently. A writer (`lethe index` / stop hook) still
-        // serializes against this shared lock and waits via the
-        // open-with-retry helper while the TUI is up; we accept that
-        // because the alternative — TUI as writer — would block all
-        // readers across N projects. Trade-off: retrieval inside the
-        // TUI doesn't bump RIF state on disk, same as `--read-only`.
+    /// Drop cached read handles so the underlying DuckDB files are unlocked.
+    fn release_caches(&mut self) {
+        self.union_store = None;
+        self.union_cache_key = None;
+        self.single_store = None;
+        self.single_cache_slug = None;
+    }
+
+    fn config(dim: usize, read_only: bool) -> StoreConfig {
         StoreConfig {
             dim,
             rif: RifConfig {
@@ -111,26 +135,77 @@ impl WorkerState {
                 use_rank_gap: true,
                 ..RifConfig::default()
             },
-            read_only: true,
+            read_only,
             ..StoreConfig::default()
         }
     }
 
-    fn handle(&mut self, req: SearchRequest, tx: &Sender<SearchOutput>) {
-        let result = match self.run(req, tx) {
-            Ok(rows) => SearchOutput::Hits(rows),
-            Err(e) => SearchOutput::Error(e),
-        };
-        let _ = tx.send(result);
+    fn handle(&mut self, req: WorkerRequest, tx: &Sender<WorkerOutput>) {
+        match req {
+            WorkerRequest::Search(q) => {
+                let out = match self.search(q, tx) {
+                    Ok(rows) => WorkerOutput::Hits(rows),
+                    Err(e) => WorkerOutput::Error(e),
+                };
+                let _ = tx.send(out);
+            }
+            WorkerRequest::Index(projects) => {
+                let out = match self.index(&projects, tx) {
+                    Ok((added, n)) => WorkerOutput::Indexed { added, projects: n },
+                    Err(e) => WorkerOutput::Error(e),
+                };
+                let _ = tx.send(out);
+            }
+            WorkerRequest::Scan => {
+                let _ = tx.send(WorkerOutput::Phase(Phase::Scanning));
+                let _ = tx.send(WorkerOutput::Scanned(maintenance::scan_stale_transcripts()));
+            }
+            WorkerRequest::DeleteStale(items) => {
+                self.release_caches();
+                let _ = tx.send(WorkerOutput::Deleted(maintenance::delete_transcripts(
+                    &items,
+                )));
+            }
+            WorkerRequest::ReleaseCaches => self.release_caches(),
+        }
     }
 
-    fn run(
+    /// Open each project read-write and freshen it. Drops read caches
+    /// first so the writer doesn't fight the TUI's own read locks.
+    fn index(
         &mut self,
-        req: SearchRequest,
-        tx: &Sender<SearchOutput>,
+        projects: &[ProjectEntry],
+        tx: &Sender<WorkerOutput>,
+    ) -> Result<(usize, usize), String> {
+        let (bi, cross) = self.ensure_encoders(tx)?;
+        self.release_caches();
+        let cfg = Self::config(bi.dim(), false);
+        let _ = tx.send(WorkerOutput::Phase(Phase::Indexing));
+        let mut added = 0usize;
+        let mut done = 0usize;
+        for entry in projects {
+            let dir = registry::registry_dir().join("index").join(&entry.slug);
+            let store = MemoryStore::open(&dir, Some(bi.clone()), Some(cross.clone()), cfg.clone())
+                .map_err(|e| e.to_string())?;
+            let counts =
+                transcript_index::ensure_fresh(&store, &entry.root).map_err(|e| e.to_string())?;
+            store.save().map_err(|e| e.to_string())?;
+            if !registry::is_disabled() {
+                let _ = registry::register(&entry.root);
+            }
+            added += counts.added;
+            done += 1;
+        }
+        Ok((added, done))
+    }
+
+    fn search(
+        &mut self,
+        req: SearchQuery,
+        tx: &Sender<WorkerOutput>,
     ) -> Result<Vec<ResultRow>, String> {
         let (bi, cross) = self.ensure_encoders(tx)?;
-        let cfg = Self::config_with_dim(bi.dim());
+        let cfg = Self::config(bi.dim(), true);
         match req.scope {
             Scope::AllProjects => {
                 let entries = registry::load();
@@ -140,10 +215,8 @@ impl WorkerState {
                     .collect::<Vec<_>>()
                     .join(",");
                 if self.union_cache_key.as_deref() != Some(&key) {
-                    let _ = tx.send(SearchOutput::Phase(Phase::LoadingIndex));
-                    self.union_store = None;
-                    self.single_store = None;
-                    self.single_cache_slug = None;
+                    let _ = tx.send(WorkerOutput::Phase(Phase::LoadingIndex));
+                    self.release_caches();
                     let union = UnionStore::open(
                         entries,
                         Some(bi.clone()),
@@ -153,7 +226,7 @@ impl WorkerState {
                     self.union_store = Some(union);
                     self.union_cache_key = Some(key);
                 }
-                let _ = tx.send(SearchOutput::Phase(Phase::Searching));
+                let _ = tx.send(WorkerOutput::Phase(Phase::Searching));
                 let store = self.union_store.as_ref().expect("just set");
                 let hits = store
                     .retrieve(&req.query, req.top_k)
@@ -161,7 +234,6 @@ impl WorkerState {
                 Ok(hits
                     .into_iter()
                     .map(|h| ResultRow {
-                        project_slug: Some(h.project_slug),
                         project_root: Some(h.project_root),
                         id: h.id,
                         content: h.content,
@@ -171,10 +243,9 @@ impl WorkerState {
             }
             Scope::Single(entry) => {
                 if self.single_cache_slug.as_deref() != Some(entry.slug.as_str()) {
-                    let _ = tx.send(SearchOutput::Phase(Phase::LoadingIndex));
-                    self.union_store = None;
-                    self.union_cache_key = None;
-                    let store_path = entry.root.join(".lethe").join("index");
+                    let _ = tx.send(WorkerOutput::Phase(Phase::LoadingIndex));
+                    self.release_caches();
+                    let store_path = registry::registry_dir().join("index").join(&entry.slug);
                     let store = MemoryStore::open(
                         &store_path,
                         Some(bi.clone()),
@@ -185,7 +256,7 @@ impl WorkerState {
                     self.single_store = Some(store);
                     self.single_cache_slug = Some(entry.slug.clone());
                 }
-                let _ = tx.send(SearchOutput::Phase(Phase::Searching));
+                let _ = tx.send(WorkerOutput::Phase(Phase::Searching));
                 let store = self.single_store.as_ref().expect("just set");
                 let hits = store
                     .retrieve(&req.query, req.top_k)
@@ -193,7 +264,6 @@ impl WorkerState {
                 Ok(hits
                     .into_iter()
                     .map(|h| ResultRow {
-                        project_slug: None,
                         project_root: None,
                         id: h.id,
                         content: h.content,

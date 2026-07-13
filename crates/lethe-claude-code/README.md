@@ -21,13 +21,12 @@ lethe-claude-code transcript <transcript.jsonl> --turn <user-turn-uuid>
 ```
 
 `transcript` parses a Claude Code JSONL transcript and prints the
-last user/assistant pair (or a specific turn) as plain text suitable
-for piping into a downstream LLM enrichment prompt.
+last user/assistant pair (or a specific turn) as plain text.
 
-Used by the plugin's `parse-transcript.sh` hook and the `recall`
-skill's progressive-disclosure step. The plugin is the only intended
-consumer; it's published as a separate crate purely so the lethe core
-CLI doesn't grow framework-specific surface.
+Used by the `recall` skill's drill-down step to surface the full
+dialogue around a hit. The plugin is the only intended consumer; it's
+published as a separate crate purely so the lethe core CLI doesn't grow
+framework-specific surface.
 
 ## See also
 

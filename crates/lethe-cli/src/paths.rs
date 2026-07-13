@@ -10,24 +10,24 @@ pub struct Paths {
 }
 
 impl Paths {
-    pub fn base(&self) -> PathBuf {
-        self.root.join(".lethe")
+    /// Stable per-project identifier (`p_<base>_<sha1[:8]>`), matching the
+    /// slug the registry records. Also names the global index directory.
+    pub fn slug(&self) -> String {
+        lethe_core::registry::slugify(&self.root)
     }
-    pub fn memory(&self) -> PathBuf {
-        self.base().join("memory")
-    }
+    /// Per-project index directory, global under `~/.lethe/index/<slug>/`.
+    /// Nothing is written into the user's repo.
     pub fn index(&self) -> PathBuf {
-        self.base().join("index")
+        lethe_core::registry::registry_dir()
+            .join("index")
+            .join(self.slug())
     }
+    /// Single global config shared by every project — encoder choice is
+    /// rarely per-project. Takes `&self` for call-site ergonomics
+    /// (`paths.config_path()`) though the path is project-independent.
+    #[allow(clippy::unused_self)]
     pub fn config_path(&self) -> PathBuf {
-        self.base().join("config.toml")
-    }
-    /// Default lock-file path used when the CLI takes the global mutex.
-    /// Currently unused (Rust port doesn't take the lock yet) but kept
-    /// for the upcoming wrapper that mirrors Python's `requires_lock`.
-    #[allow(dead_code)]
-    pub fn lock_path(&self) -> PathBuf {
-        self.base().join("lethe.lock")
+        lethe_core::registry::registry_dir().join("config.toml")
     }
 }
 
@@ -87,7 +87,11 @@ pub(crate) fn main_worktree(start: &Path) -> Option<PathBuf> {
             return if bare { None } else { wt };
         }
     }
-    if bare { None } else { wt }
+    if bare {
+        None
+    } else {
+        wt
+    }
 }
 
 #[cfg(test)]
@@ -102,7 +106,7 @@ mod tests {
             .args(args)
             .status()
             .expect("git missing");
-        assert!(status.success(), "git {:?} failed", args);
+        assert!(status.success(), "git {args:?} failed");
     }
 
     fn init_repo(dir: &Path) {
@@ -133,7 +137,10 @@ mod tests {
         let main = tmp.path().join("repo");
         let wt = tmp.path().join("wt");
         init_repo(&main);
-        run(&main, &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "feat"]);
+        run(
+            &main,
+            &["worktree", "add", "-q", wt.to_str().unwrap(), "-b", "feat"],
+        );
 
         let got = main_worktree(&wt).expect("expected main worktree");
         assert_eq!(canon(&got), canon(&main));

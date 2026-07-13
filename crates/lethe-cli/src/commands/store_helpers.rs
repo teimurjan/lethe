@@ -21,6 +21,9 @@ pub struct CliConfig {
     pub top_k: usize,
     pub n_clusters: u32,
     pub use_rank_gap: bool,
+    /// Cosine cutoff for near-duplicate detection (the write-time gate
+    /// and the offline `lethe dedupe` compaction).
+    pub dedup_threshold: f32,
     /// Catch-all for unknown keys so `config get` still surfaces them.
     #[serde(flatten)]
     pub extra: BTreeMap<String, toml::Value>,
@@ -34,6 +37,7 @@ impl Default for CliConfig {
             top_k: 5,
             n_clusters: 30,
             use_rank_gap: true,
+            dedup_threshold: 0.95,
             extra: BTreeMap::new(),
         }
     }
@@ -90,10 +94,46 @@ pub fn open_store(
         dim,
         rif,
         read_only,
+        dedup_threshold: cfg.dedup_threshold,
         ..StoreConfig::default()
     };
     let store = MemoryStore::open(index_dir, bi, cross, store_cfg)?;
     Ok(store)
+}
+
+/// Wipe the index dir when its on-disk format predates the running
+/// binary, so the next `open_store` + `ensure_fresh` rebuilds from the
+/// (authoritative) transcripts. No-op when the index is absent or
+/// current. Transcripts are never touched. Must run **before**
+/// `open_store` grabs the writer lock.
+pub fn ensure_index_format(index_dir: &Path) -> Result<()> {
+    use lethe_core::db::{MemoryDb, INDEX_FORMAT, INDEX_FORMAT_KEY};
+
+    let db_path = index_dir.join("lethe.duckdb");
+    if !db_path.exists() {
+        return Ok(());
+    }
+    // Read the marker in its own scope so the connection is dropped
+    // before we remove the directory.
+    let stale = {
+        match MemoryDb::open_with_mode(&db_path, true) {
+            Ok(db) => db
+                .get_stat(INDEX_FORMAT_KEY, "0")
+                .ok()
+                .and_then(|v| v.parse::<u32>().ok())
+                .unwrap_or(0)
+                < INDEX_FORMAT,
+            // Unreadable (locked / corrupt): leave it — open_store will
+            // surface a real error rather than silently nuking data.
+            Err(_) => false,
+        }
+    };
+    if stale {
+        std::fs::remove_dir_all(index_dir)
+            .with_context(|| format!("rebuild: remove {}", index_dir.display()))?;
+        eprintln!("lethe: index format changed — rebuilding from transcripts…");
+    }
+    Ok(())
 }
 
 /// Coerce a config value string the same way Python does.

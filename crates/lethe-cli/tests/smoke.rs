@@ -9,6 +9,50 @@ fn lethe() -> Command {
 }
 
 #[test]
+fn cleanup_deletes_dead_transcript_folder() {
+    // Point HOME / CLAUDE_CONFIG_DIR / CODEX_HOME at temp dirs, plant a
+    // Claude project folder whose recorded cwd doesn't exist, and confirm
+    // `cleanup --yes` removes it while leaving the store isolated.
+    let tmp = std::env::temp_dir().join(format!("lethe-cleanup-smoke-{}", std::process::id()));
+    let home = tmp.join("home");
+    let cfg = tmp.join("cfg");
+    let dead = cfg.join("projects").join("-gone-repo");
+    std::fs::create_dir_all(&dead).unwrap();
+    std::fs::create_dir_all(&home).unwrap();
+    std::fs::write(
+        dead.join("s.jsonl"),
+        "{\"type\":\"user\",\"uuid\":\"u1\",\"sessionId\":\"a\",\"cwd\":\"/no/such/repo/xyz\",\
+         \"message\":{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"hi\"}]}}\n\
+         {\"type\":\"assistant\",\"sessionId\":\"a\",\
+         \"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"yo\"}]}}\n",
+    )
+    .unwrap();
+
+    let run = |args: &[&str]| {
+        lethe()
+            .args(args)
+            .env("HOME", &home)
+            .env("CLAUDE_CONFIG_DIR", &cfg)
+            .env("CODEX_HOME", tmp.join("codex"))
+            .output()
+            .expect("spawn lethe")
+    };
+
+    // Dry run: reports the candidate, does not delete.
+    let dry = run(&["cleanup"]);
+    assert!(dry.status.success());
+    assert!(dead.exists(), "dry run must not delete");
+    assert!(String::from_utf8_lossy(&dry.stdout).contains("repo gone"));
+
+    // --yes: deletes it.
+    let del = run(&["cleanup", "--yes"]);
+    assert!(del.status.success());
+    assert!(!dead.exists(), "--yes should delete the dead folder");
+
+    std::fs::remove_dir_all(&tmp).ok();
+}
+
+#[test]
 fn version_flag_prints_binary_name() {
     let out = lethe().arg("--version").output().expect("spawn lethe");
     assert!(

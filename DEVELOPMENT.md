@@ -33,7 +33,7 @@ lethe                                         # opens TUI (if stdout is a termin
 Common commands once installed:
 
 ```bash
-lethe index                     # reindex .lethe/memory in the current repo
+lethe index                     # index the current project's transcripts into ~/.lethe
 lethe search "query" --top-k 5
 lethe search "query" --all      # cross-project via ~/.lethe/projects.json
 lethe tui                       # explicit TUI (same as no-arg in a TTY)
@@ -49,15 +49,9 @@ Point Claude Code's marketplace at this checkout:
 /plugin install lethe
 ```
 
-Hooks run `bash ${CLAUDE_PLUGIN_ROOT}/hooks/*.sh`; they invoke `lethe` from PATH. After `cargo install --path crates/lethe-cli`, the binary is on `~/.cargo/bin/lethe` and the hooks pick it up — no publish needed.
+The plugin is skills-only — the `recall` / `recall-global` skills shell out to `lethe` from PATH (no hooks, nothing written into the repo). After `cargo install --path crates/lethe-cli`, the binary is on `~/.cargo/bin/lethe` and the skills pick it up — no publish needed.
 
-Turn on hook traces while iterating:
-
-```bash
-export LETHE_DEBUG=1   # writes to .lethe/hooks.log of the target repo
-```
-
-After editing `plugins/claude-code/` files (hooks, skills, manifest), run `/reload-plugins` in Claude Code.
+After editing `plugins/claude-code/` files (skills, scripts, manifest), run `/reload-plugins` in Claude Code.
 
 ## Building release artifacts
 

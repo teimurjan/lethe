@@ -7,9 +7,10 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph, Wrap};
 use ratatui::Frame;
 
-use crate::app::{App, Focus, Scope, Stats, ToastKind};
+use crate::app::{App, Stats, ToastKind};
 
-const FOOTER: &str = "↑/↓ nav · ⏎ search/open · esc back · tab focus · y copy · ^q quit";
+const FOOTER: &str =
+    "type search · tab projects · ↑/↓ memories · ⏎ open · ^a actions · ^c copy · esc · ^q quit";
 const SPINNER: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
@@ -17,9 +18,14 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(3), // body
             if app.detail.is_some() {
-                Constraint::Length(8)
+                // Shrink the body so the detail pane gets the lion's share.
+                Constraint::Percentage(45)
+            } else {
+                Constraint::Min(3)
+            },
+            if app.detail.is_some() {
+                Constraint::Percentage(55)
             } else {
                 Constraint::Length(0)
             },
@@ -33,10 +39,152 @@ pub fn draw(frame: &mut Frame<'_>, app: &mut App) {
     }
     draw_footer(frame, chunks[2]);
 
-    // Toast last so it floats above everything else.
+    // Modal overlay floats above the base view…
+    if app.overlay.is_some() {
+        draw_overlay(frame, area, app);
+    }
+    // …and a transient toast floats above everything.
     if app.toast.is_some() {
         draw_toast(frame, area, app);
     }
+}
+
+/// A `Rect` of at most `w`×`h` centered in `area`.
+fn centered_rect(w: u16, h: u16, area: Rect) -> Rect {
+    let w = w.min(area.width);
+    let h = h.min(area.height);
+    Rect {
+        x: area.x + (area.width - w) / 2,
+        y: area.y + (area.height - h) / 2,
+        width: w,
+        height: h,
+    }
+}
+
+fn draw_overlay(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    use crate::app::Overlay;
+    match app.overlay.as_ref() {
+        Some(Overlay::Actions(cursor)) => draw_actions_overlay(frame, area, *cursor),
+        Some(Overlay::Confirm(c)) => draw_confirm_overlay(frame, area, c),
+        Some(Overlay::Cleanup(list)) => draw_cleanup_overlay(frame, area, list),
+        Some(Overlay::Busy(label)) => draw_busy_overlay(frame, area, label),
+        None => {}
+    }
+}
+
+fn draw_actions_overlay(frame: &mut Frame<'_>, area: Rect, cursor: usize) {
+    let items: Vec<ListItem> = crate::app::ACTIONS
+        .iter()
+        .enumerate()
+        .map(|(i, label)| {
+            let marker = if i == cursor { "▸ " } else { "  " };
+            let style = if i == cursor {
+                Style::default().add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(Color::Gray)
+            };
+            ListItem::new(Line::from(Span::styled(format!("{marker}{label}"), style)))
+        })
+        .collect();
+    let h = crate::app::ACTIONS.len() as u16 + 2;
+    let rect = centered_rect(40, h, area);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(List::new(items).block(pane_block("Actions", true)), rect);
+}
+
+fn draw_confirm_overlay(frame: &mut Frame<'_>, area: Rect, c: &crate::app::Confirm) {
+    let lines: Vec<Line<'_>> = c.lines.iter().map(|l| Line::from(l.clone())).collect();
+    let width = c
+        .lines
+        .iter()
+        .map(|l| l.chars().count())
+        .chain(std::iter::once(c.title.chars().count()))
+        .max()
+        .unwrap_or(20)
+        .clamp(24, 72) as u16
+        + 4;
+    let rect = centered_rect(width, c.lines.len() as u16 + 2, area);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(pane_block(&c.title, true))
+            .wrap(Wrap { trim: false }),
+        rect,
+    );
+}
+
+fn draw_cleanup_overlay(frame: &mut Frame<'_>, area: Rect, list: &crate::app::CleanupList) {
+    let sel = list.selected.iter().filter(|s| **s).count();
+    let bytes: u64 = list
+        .items
+        .iter()
+        .zip(&list.selected)
+        .filter(|(_, s)| **s)
+        .map(|(it, _)| it.bytes)
+        .sum();
+    let title = format!(
+        "Clean up — {sel}/{} selected, {}",
+        list.items.len(),
+        lethe_core::maintenance::human_bytes(bytes)
+    );
+
+    let rect = centered_rect(78, (list.items.len() as u16 + 4).min(area.height), area);
+    let inner_rows = rect.height.saturating_sub(2) as usize; // minus borders
+    let body_rows = inner_rows.saturating_sub(1).max(1); // reserve 1 for hint
+                                                         // Scroll so the cursor stays visible.
+    let start = list
+        .cursor
+        .saturating_sub(body_rows.saturating_sub(1))
+        .min(list.items.len().saturating_sub(body_rows));
+    let mut lines: Vec<Line<'_>> = Vec::new();
+    for (i, it) in list.items.iter().enumerate().skip(start).take(body_rows) {
+        let checked = list.selected.get(i).copied().unwrap_or(false);
+        let name = it.path.file_name().map_or_else(
+            || it.path.to_string_lossy().into_owned(),
+            |n| n.to_string_lossy().into_owned(),
+        );
+        let row = format!(
+            "{} {:<11} {:>9}  {}",
+            if checked { "[x]" } else { "[ ]" },
+            it.reason.label(),
+            lethe_core::maintenance::human_bytes(it.bytes),
+            name,
+        );
+        let style = if i == list.cursor {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else if checked {
+            Style::default()
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        lines.push(Line::from(Span::styled(row, style)));
+    }
+    lines.push(Line::from(Span::styled(
+        "space toggle · a all · ⏎ delete selected · esc cancel",
+        Style::default().fg(Color::DarkGray),
+    )));
+    frame.render_widget(Clear, rect);
+    frame.render_widget(Paragraph::new(lines).block(pane_block(&title, true)), rect);
+}
+
+fn draw_busy_overlay(frame: &mut Frame<'_>, area: Rect, label: &str) {
+    let body = Line::from(vec![
+        Span::styled(
+            spinner_frame(),
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("  "),
+        Span::raw(label.to_owned()),
+    ]);
+    let w = (label.chars().count() as u16 + 8).clamp(20, 60);
+    let rect = centered_rect(w, 3, area);
+    frame.render_widget(Clear, rect);
+    frame.render_widget(
+        Paragraph::new(body).block(pane_block("Working", true)),
+        rect,
+    );
 }
 
 fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
@@ -48,35 +196,39 @@ fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(5),
-            Constraint::Length(7),
+            Constraint::Length(4),
             Constraint::Length(8),
         ])
         .split(chunks[0]);
     draw_projects(frame, left[0], app);
-    draw_rif(frame, left[1], app);
+    draw_sources(frame, left[1], app);
     draw_stats(frame, left[2], app);
     draw_results_pane(frame, chunks[1], app);
 }
 
 fn draw_projects(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
-    let title = format!("Projects ({})", app.projects.len());
-    let active = matches!(app.focus, Focus::Projects);
-    let block = pane_block(&title, active);
+    let title = format!("Projects ({}) — tab", app.projects.len());
+    // Driven by Tab/Shift+Tab; the reversed selection shows the current
+    // project. The arrow-driven memory pane carries the active border.
+    let block = pane_block(&title, false);
 
-    let current_slug = match &app.scope {
-        Scope::Single(e) => Some(e.slug.as_str()),
-        Scope::AllProjects => None,
-    };
+    // Names get a 2-col marker prefix; trim the rest to the pane width
+    // with an ellipsis so long names don't overflow or wrap.
+    let name_room = (area.width.saturating_sub(2) as usize)
+        .saturating_sub(2)
+        .max(4);
     let items: Vec<ListItem> = app
         .projects
         .iter()
-        .map(|p| {
-            let label = if Some(p.slug.as_str()) == current_slug {
-                format!("▸ {}", p.slug)
+        .enumerate()
+        .map(|(i, p)| {
+            let name = truncate(&crate::app::project_name(&p.root), name_room);
+            let marker = if i == app.project_selection {
+                "▸ "
             } else {
-                format!("  {}", p.slug)
+                "  "
             };
-            ListItem::new(Line::from(label))
+            ListItem::new(Line::from(format!("{marker}{name}")))
         })
         .collect();
 
@@ -100,30 +252,28 @@ fn draw_results_pane(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
 }
 
 fn draw_search_input(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let active = matches!(app.focus, Focus::Search);
+    // Typing always targets the box, so the cursor is always shown.
     let prompt = format!("{} ▸ ", app.scope.label());
     let body = Line::from(vec![
         Span::styled(prompt, Style::default().fg(Color::Cyan)),
         Span::raw(&app.search_input),
-        Span::styled(
-            if active { "█" } else { " " },
-            Style::default().fg(Color::White),
-        ),
+        Span::styled("█", Style::default().fg(Color::White)),
     ]);
-    let block = pane_block("Search", active);
+    let block = pane_block("Search", false);
     let para = Paragraph::new(body).block(block);
     frame.render_widget(para, area);
 }
 
 fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     let n = app.results.len();
+    let noun = if app.browsing { "Memories" } else { "Results" };
     let title = if n == 0 {
-        "Results".to_owned()
+        noun.to_owned()
     } else {
-        format!("Results ({n})")
+        format!("{noun} ({n}) — ↑/↓")
     };
-    let active = matches!(app.focus, Focus::Results);
-    let block = pane_block(&title, active);
+    // Arrow keys move within this list, so it carries the active border.
+    let block = pane_block(&title, true);
 
     if app.searching {
         let spin = spinner_frame();
@@ -158,8 +308,10 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     }
 
     if app.results.is_empty() {
-        let msg = if app.last_query.is_empty() {
-            "(type a query and press enter)"
+        let msg = if app.projects.is_empty() {
+            "no projects — run `lethe index` in a repo"
+        } else if app.browsing {
+            "no memories in this project"
         } else {
             "no results"
         };
@@ -189,51 +341,31 @@ fn draw_results(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
     frame.render_stateful_widget(list, area, &mut state);
 }
 
-fn draw_rif(frame: &mut Frame<'_>, area: Rect, app: &App) {
-    let block = pane_block("Active Memories", false);
-    let interior = area.width.saturating_sub(2) as usize;
-    if app.rif.rows.is_empty() {
-        let para = Paragraph::new(Line::from(Span::styled(
-            "(idle)",
+fn draw_sources(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let block = pane_block("Sources", false);
+    let lines: Vec<Line<'_>> = match &app.stats {
+        None => vec![Line::from(Span::styled(
+            "computing…",
             Style::default().fg(Color::DarkGray),
-        )))
-        .block(block);
-        frame.render_widget(para, area);
-        return;
-    }
-    // Visible rows: pane Length is 7 → 5 content rows.
-    let lines: Vec<Line<'_>> = app
-        .rif
-        .rows
-        .iter()
-        .take(5)
-        .map(|r| rif_line(r, interior))
-        .collect();
+        ))],
+        Some(s) => vec![
+            source_line("Claude Code", s.claude),
+            source_line("Codex", s.codex),
+        ],
+    };
     let para = Paragraph::new(lines).block(block);
     frame.render_widget(para, area);
 }
 
-fn rif_line(r: &crate::app::RifActiveRow, interior: usize) -> Line<'_> {
-    // "<score> [<slug≤8>] <snippet>" — measure score and slug widths
-    // from their actual formatted strings so unusual values (e.g.
-    // "12.34", "-1.00") don't overflow snippet_room.
-    let score = format!("{:.2}", r.suppression);
-    let slug = truncate(&r.project_slug, 8);
-    // score + " " + "[" + slug + "] " + " "  →  score + slug + 4
-    let prefix_w = score.chars().count() + slug.chars().count() + 4;
-    let snippet_room = interior.saturating_sub(prefix_w).max(8);
-    let snip = snippet(&r.content, snippet_room);
+fn source_line(label: &str, count: usize) -> Line<'static> {
     Line::from(vec![
+        Span::styled(format!("{label:<12}"), Style::default().fg(Color::White)),
         Span::styled(
-            score,
+            format_count(count),
             Style::default()
                 .fg(Color::Cyan)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(" "),
-        Span::styled(format!("[{slug}]"), Style::default().fg(Color::Magenta)),
-        Span::raw(" "),
-        Span::raw(snip),
     ])
 }
 
@@ -310,10 +442,86 @@ fn truncate(s: &str, n: usize) -> String {
 }
 
 fn draw_detail(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let content = app.detail.as_deref().unwrap_or_default();
     let block = pane_block("Detail (Esc to close)", false);
-    let body = app.detail.clone().unwrap_or_default();
-    let para = Paragraph::new(body).block(block).wrap(Wrap { trim: false });
-    frame.render_widget(para, area);
+    let inner = block.inner(area);
+    frame.render_widget(block, area);
+
+    let header = detail_header(content);
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(header.len() as u16),
+            Constraint::Min(1),
+        ])
+        .split(inner);
+    frame.render_widget(Paragraph::new(header), rows[0]);
+
+    // Body: USER on the left, ASSISTANT on the right.
+    let (user, assistant) = detail_body(content);
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(rows[1]);
+    frame.render_widget(
+        Paragraph::new(user)
+            .block(pane_block("USER", false).border_style(Style::default().fg(Color::Yellow)))
+            .wrap(Wrap { trim: false }),
+        cols[0],
+    );
+    frame.render_widget(
+        Paragraph::new(assistant)
+            .block(pane_block("ASSISTANT", false).border_style(Style::default().fg(Color::Green)))
+            .wrap(Wrap { trim: false }),
+        cols[1],
+    );
+}
+
+/// The metadata header parsed from the `<!-- session:… -->` anchor.
+fn detail_header(content: &str) -> Vec<Line<'static>> {
+    let dim = Style::default().fg(Color::DarkGray);
+    let Some(a) = lethe_core::markdown_store::parse_anchor(content) else {
+        return Vec::new();
+    };
+    let file = std::path::Path::new(&a.transcript).file_name().map_or_else(
+        || a.transcript.clone(),
+        |s| s.to_string_lossy().into_owned(),
+    );
+    vec![Line::from(vec![
+        Span::styled("session ", dim),
+        Span::styled(truncate(&a.session, 8), Style::default().fg(Color::Cyan)),
+        Span::styled("   turn ", dim),
+        Span::styled(truncate(&a.turn, 8), Style::default().fg(Color::Cyan)),
+        Span::styled("   transcript ", dim),
+        Span::styled(file, dim),
+    ])]
+}
+
+/// Split a transcript-turn chunk into its USER and ASSISTANT bodies,
+/// dropping the raw anchor line and the `USER:`/`ASSISTANT:` markers.
+fn detail_body(content: &str) -> (Vec<Line<'static>>, Vec<Line<'static>>) {
+    let mut user: Vec<Line<'static>> = Vec::new();
+    let mut assistant: Vec<Line<'static>> = Vec::new();
+    let mut target = &mut user;
+    for line in content.lines() {
+        let s = line.trim_end();
+        let t = s.trim();
+        if t.starts_with("<!--") && t.ends_with("-->") {
+            continue;
+        }
+        match t {
+            "USER:" => {
+                target = &mut user;
+                continue;
+            }
+            "ASSISTANT:" => {
+                target = &mut assistant;
+                continue;
+            }
+            _ => target.push(Line::from(s.to_owned())),
+        }
+    }
+    (user, assistant)
 }
 
 fn draw_toast(frame: &mut Frame<'_>, full: Rect, app: &App) {
@@ -409,7 +617,11 @@ fn result_row(
         Style::default().fg(Color::DarkGray)
     };
 
-    let slug_tag = r.project_slug.as_ref().map(|s| format!("[{s}]"));
+    // Tag cross-project hits with the friendly project name, not the slug.
+    let slug_tag = r
+        .project_root
+        .as_deref()
+        .map(|root| format!("[{}]", truncate(&crate::app::project_name(root), 14)));
     let slug_w = slug_tag.as_ref().map_or(0, |s| s.chars().count());
     let right_reserve = if slug_w > 0 { slug_w + 2 } else { 0 };
     let snippet_room = interior
@@ -472,6 +684,11 @@ fn snippet(content: &str, width: usize) -> String {
             continue;
         }
         if s.starts_with("<!--") && s.ends_with("-->") {
+            continue;
+        }
+        // Transcript turns lead with role labels; skip them so the row
+        // shows the actual prompt/reply text instead of "USER:".
+        if s == "USER:" || s == "ASSISTANT:" {
             continue;
         }
         if s.len() > width {

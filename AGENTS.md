@@ -1,9 +1,10 @@
 # lethe — agent guide
 
 Self-improving memory store for LLM agents. BM25 + dense vector hybrid
-retrieval with cross-encoder reranking, clustered retrieval-induced
-forgetting (RIF), and optional LLM write-time enrichment. Ships as a
-single Rust binary (`lethe`) plus PyPI / npm bindings.
+retrieval with cross-encoder reranking and clustered retrieval-induced
+forgetting (RIF). Indexes agent transcripts (Claude Code / Codex) directly
+— no capture hooks, no summarization. Ships as a single Rust binary (`lethe`)
+plus PyPI / npm bindings.
 
 ## stack
 
@@ -11,12 +12,12 @@ single Rust binary (`lethe`) plus PyPI / npm bindings.
   `rust-toolchain.toml`.
   - `lethe-core` — library: tokenize, bm25, faiss_flat, rrf, dedup, rif,
     kmeans, encoders (ONNX via `ort`), DuckDB persistence, npz reader,
-    memory_store, union_store, markdown_store.
+    memory_store, union_store, markdown_store, transcript_store.
   - `lethe-cli` — `lethe` binary (clap; embeds the TUI).
   - `lethe-tui` — ratatui library called from the CLI on no-arg invocation.
   - `lethe-py` — PyO3 binding → PyPI `lethe-memory`.
   - `lethe-node` — napi-rs binding → npm `lethe`.
-  - `lethe-claude-code` — Claude Code adapter binary (transcript parsing).
+  - `lethe-claude-code` / `lethe-codex` — adapter binaries (transcript drill-down).
   - `lethe-benchmark` — internal parity bench helper (`publish = false`).
 - **DuckDB** for entry metadata + embedding BLOBs (single source of truth).
 - **ONNX Runtime** (via `ort`) for the bi-encoder + cross-encoder.
@@ -53,9 +54,10 @@ uv run python research_playground/rust_migration/latency.py --compare
 
 # CLI surface (the `lethe` binary)
 lethe                                    # no args → TUI (in a terminal)
-lethe index                              # reindex .lethe/memory
-lethe search "query" --top-k 5
-lethe search "query" --all --top-k 5     # all registered projects (DuckDB ATTACH)
+lethe index                              # index this project's transcripts
+lethe index --all                        # reindex every registered project
+lethe search "query" --top-k 5           # reindexes changed transcripts first
+lethe search "query" --all --top-k 5     # all registered projects (per-project read-only)
 lethe projects list|add|remove|prune
 lethe expand <chunk-id> [<chunk-id> ...]
 lethe status
@@ -134,6 +136,22 @@ If a change is purely landing-page content (badges, plugin GIFs,
   `fix:` only — use either when you want the next release to fan out
   to crates.io / PyPI / npm / Homebrew. Everything else (`chore:`,
   `docs:`, `refactor:`, `test:`, `perf:`) does not trigger a release.
+- **Never hand-edit changelogs or version numbers.** release-please owns
+  both: the `CHANGELOG.md` / `plugins/CHANGELOG.md` files, the workspace
+  version and every mirrored version (the `extra-files` in
+  `release-please-config.json` — crate manifests, `package.json`,
+  `pyproject.toml`, plugin manifests, marketplace manifests,
+  `.release-please-manifest.json`). A manual bump is overwritten on the
+  next run and only causes churn. To move the version, land the right
+  conventional commit and let the release PR bump it:
+  - `fix:` → patch, `feat:` → minor, `feat!:` / a `BREAKING CHANGE:`
+    footer → breaking. **`bump-minor-pre-major: true` is set**, so while
+    the project is pre-1.0 a breaking change bumps *minor*, not major
+    (0.14.0 → 0.15.0); it does not jump to 1.0.0 on its own. Remove that
+    flag (or land a manual `release-as`) when you deliberately want 1.0.
+  - The **squash-merge commit title** is what release-please parses, so
+    the PR title must carry the right type/`!` — individual branch
+    commits are discarded on squash.
 - Workspace version is pinned at `Cargo.toml :: [workspace.package].version`;
   every member crate inherits via `version.workspace = true`. Same value
   is bumped in `crates/lethe-py/pyproject.toml` and

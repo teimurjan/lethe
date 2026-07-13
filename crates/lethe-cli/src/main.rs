@@ -36,10 +36,11 @@ struct Cli {
 
 #[derive(Subcommand, Debug)]
 enum Cmd {
-    /// Reindex markdown memory files.
+    /// Index this project's agent transcripts into the store.
     Index {
-        /// Override memory directory.
-        dir: Option<String>,
+        /// Reindex every registered project, not just the current one.
+        #[arg(long)]
+        all: bool,
         #[arg(long)]
         json_output: bool,
         #[arg(long)]
@@ -85,42 +86,37 @@ enum Cmd {
         key: Option<String>,
         value: Option<String>,
     },
-    /// Delete .lethe/index/ (markdown preserved).
+    /// Merge near-duplicate chunks in this project's index. Deletes by
+    /// default — pass `--dry-run` to preview the groups first.
+    Dedupe {
+        /// Report the near-duplicate groups without modifying the index.
+        #[arg(long)]
+        dry_run: bool,
+        /// Cosine cutoff override (default: config `dedup_threshold`).
+        #[arg(long)]
+        threshold: Option<f32>,
+        #[arg(long)]
+        json_output: bool,
+        /// Compact every registered project, not just the current one.
+        #[arg(long)]
+        all: bool,
+    },
+    /// Delete this project's global index (transcripts are untouched).
     Reset {
         #[arg(long)]
         yes: bool,
-    },
-    /// Run Haiku enrichment over scanned chunks (delegates to Python).
-    Enrich {
-        dir: Option<String>,
-        #[arg(long, default_value = "claude-haiku-4-5")]
-        model: String,
-        #[arg(long, default_value_t = 5)]
-        concurrency: usize,
     },
     /// Manage the global project registry.
     Projects {
         #[command(subcommand)]
         action: ProjectsCmd,
     },
-    /// Backfill memories from past Claude Code / Codex transcripts for the
-    /// current project. Idempotent — re-running skips sessions already seeded.
-    Seed {
-        /// Lookback window in days (mtime filter on transcripts).
-        #[arg(long, default_value_t = 7)]
-        days: u64,
-        /// Which agent's transcripts to scan.
-        #[arg(long, default_value = "all", value_parser = ["all", "claude-code", "codex"])]
-        source: String,
-        /// List discovered sessions without summarizing or writing.
+    /// Delete dead/empty Claude Code & Codex transcripts from disk.
+    /// Dry-run unless `--yes`.
+    Cleanup {
+        /// Actually delete (default is a preview).
         #[arg(long)]
-        dry_run: bool,
-        /// Skip the Haiku summarizer and store a raw last-prompt snippet instead.
-        #[arg(long)]
-        no_summarize: bool,
-        /// Cap the number of sessions processed in this run.
-        #[arg(long)]
-        max_sessions: Option<usize>,
+        yes: bool,
         #[arg(long)]
         json_output: bool,
     },
@@ -141,6 +137,18 @@ enum ProjectsCmd {
     Remove { name: String },
     /// Drop registry entries whose roots no longer exist.
     Prune,
+    /// Remove registered projects that have no memories (indexed, empty).
+    /// Dry-run unless `--yes`.
+    PruneEmpty {
+        /// Also delete each project's Claude/Codex transcripts on disk.
+        #[arg(long)]
+        transcripts: bool,
+        /// Actually delete (default is a preview).
+        #[arg(long)]
+        yes: bool,
+        #[arg(long)]
+        json_output: bool,
+    },
 }
 
 fn main() -> std::process::ExitCode {
@@ -184,10 +192,10 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
     };
     match cmd {
         Cmd::Index {
-            dir,
+            all,
             json_output,
             no_register,
-        } => commands::index::run(root, dir.as_deref(), json_output, no_register),
+        } => commands::index::run(root, all, json_output, no_register),
         Cmd::Search {
             query,
             top_k,
@@ -207,30 +215,15 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         Cmd::Config { action, key, value } => {
             commands::config::run(root, &action, key.as_deref(), value.as_deref())
         }
+        Cmd::Dedupe {
+            dry_run,
+            threshold,
+            json_output,
+            all,
+        } => commands::dedupe::run(root, threshold, dry_run, json_output, all),
         Cmd::Reset { yes } => commands::reset::run(root, yes),
-        Cmd::Enrich { .. } => {
-            eprintln!(
-                "lethe does not implement `enrich` in v1 — run the legacy Python `lethe enrich` instead."
-            );
-            Ok(2)
-        }
         Cmd::Projects { action } => commands::projects::run(action),
-        Cmd::Seed {
-            days,
-            source,
-            dry_run,
-            no_summarize,
-            max_sessions,
-            json_output,
-        } => commands::seed::run(
-            root,
-            days,
-            &source,
-            dry_run,
-            no_summarize,
-            max_sessions,
-            json_output,
-        ),
+        Cmd::Cleanup { yes, json_output } => commands::cleanup::run(yes, json_output),
         Cmd::Tui => commands::tui::run(),
     }
 }

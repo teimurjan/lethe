@@ -17,6 +17,7 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Instant;
 
 use anyhow::{anyhow, Context, Result};
@@ -25,6 +26,8 @@ use lethe_core::bm25::BM25Okapi;
 use lethe_core::encoders::{BiEncoder, CrossEncoder, Pooling};
 use lethe_core::faiss_flat::FlatIp;
 use lethe_core::fields::{extract_entities, extract_title};
+use lethe_core::memory_store::{MemoryStore, StoreConfig};
+use lethe_core::rif::RifConfig;
 use lethe_core::tokenize::tokenize_bm25;
 use ndarray::{Array2, ArrayView1};
 
@@ -129,6 +132,17 @@ enum Cmd {
         #[arg(long)]
         pairs: PathBuf,
     },
+    /// Full-pipeline A/B on LongMemEval through the production
+    /// `MemoryStore` (RIF + cross-encoder rerank): baseline vs. after an
+    /// offline `dedupe` compaction. Emits NDCG@10 / Recall@10 as JSON.
+    RifEval {
+        /// Cosine cutoff for the compaction pass.
+        #[arg(long, default_value_t = 0.95)]
+        threshold: f32,
+        /// RIF clusters (matches the production default).
+        #[arg(long, default_value_t = 30)]
+        n_clusters: u32,
+    },
 }
 
 /// Map a HuggingFace repo to a filesystem-safe subdir of `--data`.
@@ -203,6 +217,17 @@ fn main() -> Result<()> {
         Cmd::Bm25 { queries } => cmd_bm25(&cli.data, &queries),
         Cmd::FlatIp { queries } => cmd_flat_ip(&cli.data, &queries),
         Cmd::Xenc { pairs } => cmd_xenc(&pairs, &cli.cross_encoder),
+        Cmd::RifEval {
+            threshold,
+            n_clusters,
+        } => cmd_rif_eval(
+            &cli.data,
+            &cli.cross_encoder,
+            &cli.bi_encoder,
+            cli.sample_limit,
+            threshold,
+            n_clusters,
+        ),
     }
 }
 
@@ -1162,6 +1187,196 @@ fn cmd_xenc(pairs_path: &std::path::Path, cross_encoder_repo: &str) -> Result<()
     });
     println!("{}", serde_json::to_string(&payload)?);
     Ok(())
+}
+
+/// Full-pipeline A/B: ingest the LongMemEval corpus into a real
+/// `MemoryStore`, then evaluate NDCG@10 / Recall@10 for the baseline vs.
+/// after an offline `dedupe` compaction. Each arm ingests a fresh
+/// ephemeral store so RIF starts cold and the arms are independent. The
+/// compaction arm remaps qrels through the alias table so a gold turn
+/// absorbed into a canonical still counts when the canonical is
+/// retrieved.
+#[allow(clippy::too_many_lines)]
+fn cmd_rif_eval(
+    data: &std::path::Path,
+    cross_encoder_repo: &str,
+    bi_encoder_repo: &str,
+    sample_limit: usize,
+    threshold: f32,
+    n_clusters: u32,
+) -> Result<()> {
+    let lme_rust = data.join(lme_dir_name(bi_encoder_repo));
+    let meta: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(lme_rust.join("meta.json"))
+            .with_context(|| format!("read {}/meta.json", lme_rust.display()))?,
+    )?;
+    let n_corpus = meta["n_corpus"].as_u64().unwrap() as usize;
+    let dim = meta["dim"].as_u64().unwrap() as usize;
+
+    let corpus_ids: Vec<String> = std::fs::read_to_string(lme_rust.join("corpus_ids.txt"))?
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let query_ids: Vec<String> = std::fs::read_to_string(lme_rust.join("query_ids.txt"))?
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    eprintln!("[rif-eval] reading corpus embeddings ({n_corpus}×{dim})…");
+    let corpus_embs = read_f32_matrix(&lme_rust.join("corpus_embeddings.bin"), n_corpus, dim)?;
+
+    let mut sampled: Vec<usize> =
+        std::fs::read_to_string(lme_rust.join("sampled_query_indices.txt"))?
+            .lines()
+            .map(str::parse)
+            .collect::<Result<_, _>>()?;
+    if sample_limit > 0 && sampled.len() > sample_limit {
+        sampled.truncate(sample_limit);
+    }
+
+    let qrels: HashMap<String, HashMap<String, f64>> = serde_json::from_str(
+        &std::fs::read_to_string(data.join("longmemeval_qrels.json"))?,
+    )?;
+    let corpus_content: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(
+        data.join("longmemeval_corpus.json"),
+    )?)?;
+    let query_texts: HashMap<String, String> = serde_json::from_str(&std::fs::read_to_string(
+        data.join("longmemeval_queries.json"),
+    )?)?;
+
+    let eval_queries: Vec<(String, String)> = sampled
+        .iter()
+        .filter_map(|&i| {
+            let qid = query_ids.get(i)?.clone();
+            let text = query_texts.get(&qid)?.clone();
+            Some((qid, text))
+        })
+        .collect();
+    eprintln!("[rif-eval] {} eval queries", eval_queries.len());
+
+    eprintln!("[rif-eval] loading encoders…");
+    let bi = Arc::new(BiEncoder::from_repo(bi_encoder_repo)?);
+    let cross = Arc::new(CrossEncoder::from_repo(cross_encoder_repo)?);
+
+    let store_dir = data.join(".rif_eval_store");
+
+    // Build a fresh in-memory store over the whole corpus. Ephemeral:
+    // nothing is persisted, so each arm starts with cold RIF and the
+    // arms stay independent. The DuckDB at `store_dir` is only used by
+    // `dedupe` for the (tiny) alias table.
+    let ingest = || -> Result<MemoryStore> {
+        let _ = std::fs::remove_dir_all(&store_dir);
+        let cfg = StoreConfig {
+            dim,
+            dedup_threshold: threshold,
+            rif: RifConfig {
+                n_clusters,
+                ..RifConfig::default()
+            },
+            ..StoreConfig::default()
+        };
+        let store = MemoryStore::open(&store_dir, Some(bi.clone()), Some(cross.clone()), cfg)?;
+        let items = corpus_ids.iter().enumerate().map(|(row, cid)| {
+            let content = corpus_content.get(cid).cloned().unwrap_or_default();
+            (cid.clone(), content, corpus_embs.row(row).to_owned())
+        });
+        let t = Instant::now();
+        store.ingest_ephemeral(items)?;
+        eprintln!("[rif-eval]   ingested {n_corpus} in {:.1}s", t.elapsed().as_secs_f64());
+        Ok(store)
+    };
+
+    // Baseline (no compaction).
+    eprintln!("[rif-eval] arm: baseline…");
+    let baseline = eval_arm(&ingest()?, &eval_queries, &qrels)?;
+
+    // Compaction arm: ingest, compact, remap qrels through the aliases so
+    // an absorbed gold turn still scores when its canonical is retrieved.
+    eprintln!("[rif-eval] arm: +dedupe (τ={threshold:.2})…");
+    let store = ingest()?;
+    let report = store.dedupe(threshold, false)?;
+    let alias = store.with_db(lethe_core::db::MemoryDb::alias_map)?;
+    eprintln!(
+        "[rif-eval] dedupe: scanned={} groups={} absorbed={}",
+        report.scanned, report.groups, report.absorbed
+    );
+    let qrels_after: HashMap<String, HashMap<String, f64>> = qrels
+        .iter()
+        .map(|(qid, rels)| {
+            let mut m: HashMap<String, f64> = HashMap::new();
+            for (gid, &rel) in rels {
+                let key = alias.get(gid).cloned().unwrap_or_else(|| gid.clone());
+                let e = m.entry(key).or_insert(0.0);
+                *e = e.max(rel);
+            }
+            (qid.clone(), m)
+        })
+        .collect();
+    let dedupe = eval_arm(&store, &eval_queries, &qrels_after)?;
+    drop(store);
+
+    let _ = std::fs::remove_dir_all(&store_dir);
+
+    let arm = |m: &ArmMetrics| {
+        serde_json::json!({"ndcg": m.ndcg, "recall": m.recall, "n_eval": m.n_eval, "time_s": m.time_s})
+    };
+    let payload = serde_json::json!({
+        "impl": "rust",
+        "bi_encoder": bi_encoder_repo,
+        "cross_encoder": cross_encoder_repo,
+        "n_corpus": n_corpus,
+        "n_corpus_after": n_corpus - report.absorbed,
+        "threshold": threshold,
+        "n_clusters": n_clusters,
+        "dedupe": {"scanned": report.scanned, "groups": report.groups, "absorbed": report.absorbed},
+        "arms": {
+            "baseline": arm(&baseline),
+            "dedupe": arm(&dedupe),
+        }
+    });
+    println!("{}", serde_json::to_string_pretty(&payload)?);
+
+    eprintln!("\narm        ndcg@10  recall@10   n   time_s");
+    for (name, m) in [("baseline", &baseline), ("+dedupe", &dedupe)] {
+        eprintln!(
+            "{name:<10} {:.4}   {:.4}    {}  {:.1}",
+            m.ndcg, m.recall, m.n_eval, m.time_s
+        );
+    }
+    Ok(())
+}
+
+struct ArmMetrics {
+    ndcg: f64,
+    recall: f64,
+    n_eval: usize,
+    time_s: f64,
+}
+
+/// Run every eval query through `store.retrieve` and average NDCG@10 /
+/// Recall@10 against `qrels`.
+fn eval_arm(
+    store: &MemoryStore,
+    queries: &[(String, String)],
+    qrels: &HashMap<String, HashMap<String, f64>>,
+) -> Result<ArmMetrics> {
+    let t = Instant::now();
+    let mut ndcgs = Vec::new();
+    let mut recalls = Vec::new();
+    for (qid, text) in queries {
+        let Some(rel) = qrels.get(qid) else { continue };
+        if rel.is_empty() {
+            continue;
+        }
+        let ids: Vec<String> = store.retrieve(text, 10)?.into_iter().map(|h| h.id).collect();
+        ndcgs.push(ndcg_at_k(&ids, rel, 10));
+        recalls.push(recall_at_k(&ids, rel, 10));
+    }
+    Ok(ArmMetrics {
+        ndcg: mean(&ndcgs),
+        recall: mean(&recalls),
+        n_eval: ndcgs.len(),
+        time_s: t.elapsed().as_secs_f64(),
+    })
 }
 
 fn read_input(path: &std::path::Path) -> Result<String> {

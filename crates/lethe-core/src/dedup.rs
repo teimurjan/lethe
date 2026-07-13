@@ -20,6 +20,18 @@ pub fn content_hash(content: &str) -> String {
     hex::encode(hasher.finalize())
 }
 
+/// Exact-dedup hash over the *canonical* (anchor-stripped) form of a
+/// chunk. The stored `content` keeps its `<!-- session:… -->` anchor for
+/// provenance, but the anchor carries volatile session/turn/transcript
+/// values, so two identical turns from a moved or recopied transcript
+/// would otherwise never hash equal. Stripping via
+/// [`markdown_store::embed_content`] — the same canonicalization the
+/// bi-encoder sees — lets the indexed `content_hash` gate actually fire.
+#[must_use]
+pub fn canonical_hash(content: &str) -> String {
+    content_hash(&crate::markdown_store::embed_content(content))
+}
+
 /// Returns the row index of the most similar existing embedding, or
 /// `None` if none meets `threshold`.
 ///

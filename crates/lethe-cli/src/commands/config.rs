@@ -29,6 +29,7 @@ pub fn run(
                 "top_k" => Some(toml::Value::Integer(cfg.top_k as i64)),
                 "n_clusters" => Some(toml::Value::Integer(cfg.n_clusters as i64)),
                 "use_rank_gap" => Some(toml::Value::Boolean(cfg.use_rank_gap)),
+                "dedup_threshold" => Some(toml::Value::Float(f64::from(cfg.dedup_threshold))),
                 _ => cfg.extra.get(k).cloned(),
             };
             let Some(v) = v else {
@@ -57,6 +58,13 @@ pub fn run(
                 ("top_k", toml::Value::Integer(i)) => cfg.top_k = (*i).max(1) as usize,
                 ("n_clusters", toml::Value::Integer(i)) => cfg.n_clusters = (*i).max(0) as u32,
                 ("use_rank_gap", toml::Value::Boolean(b)) => cfg.use_rank_gap = *b,
+                ("dedup_threshold", toml::Value::Float(f)) => {
+                    cfg.dedup_threshold = (*f as f32).clamp(0.0, 1.0);
+                }
+                // Accept an integer literal (e.g. `1`) for the threshold too.
+                ("dedup_threshold", toml::Value::Integer(i)) => {
+                    cfg.dedup_threshold = (*i as f32).clamp(0.0, 1.0);
+                }
                 _ => {
                     cfg.extra.insert(k.to_owned(), coerced.clone());
                 }
@@ -90,6 +98,10 @@ fn config_to_toml_table(cfg: &super::store_helpers::CliConfig) -> toml::Table {
     t.insert(
         "use_rank_gap".into(),
         toml::Value::Boolean(cfg.use_rank_gap),
+    );
+    t.insert(
+        "dedup_threshold".into(),
+        toml::Value::Float(f64::from(cfg.dedup_threshold)),
     );
     for (k, v) in &cfg.extra {
         t.insert(k.clone(), v.clone());

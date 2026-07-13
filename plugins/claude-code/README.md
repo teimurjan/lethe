@@ -1,6 +1,6 @@
 # lethe — Claude Code plugin
 
-Persistent memory across Claude Code sessions. Markdown-first storage, hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting, optional Haiku enrichment.
+Persistent memory across Claude Code sessions. Indexes your transcripts directly, hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting.
 
 ## Install
 
@@ -9,48 +9,66 @@ Persistent memory across Claude Code sessions. Markdown-first storage, hybrid BM
 /plugin install lethe
 ```
 
-After restart, a `.lethe/` directory will appear in each project's git root on first use:
+The plugin ships two recall skills plus one small background hook, and writes
+nothing into your repos. lethe reads the transcripts Claude Code already keeps
+under `$CLAUDE_CONFIG_DIR/projects/<slug>/` (default `~/.claude`) and maintains
+a global index under `~/.lethe/`:
 
 ```
-.lethe/
-├── memory/            # source of truth — daily markdown files (git-diffable)
-├── index/             # rebuildable SQLite + FAISS artifacts (safe to delete)
-├── enrichments.jsonl  # optional LLM enrichments per chunk
-└── config.toml        # user-editable knobs
+~/.lethe/
+├── projects.json          # registry of indexed projects (for cross-project recall)
+├── config.toml            # user-editable knobs (encoder choice, etc.)
+└── index/<slug>/          # per-project DuckDB index (rebuildable, safe to delete)
 ```
 
 ## How it works
 
-| Event | Behavior |
-|-------|----------|
-| `SessionStart` | Injects the last ~30 lines from the 2 most recent daily files as additional context. |
-| `UserPromptSubmit` | On the first prompt of a session, appends a `## Session HH:MM` heading. The `recall` (this project) and `recall-global` (all projects) skills decide when memory is relevant from their own descriptions — no per-prompt hint is injected. |
-| `Stop` (async) | Summarizes the latest turn via `claude -p --model haiku`, appends bullets + a progressive-disclosure anchor to today's file, and reindexes. |
-| `SessionEnd` (async) | Flushes suppression state. |
+Recall is on-demand via two skills — no LLM summarization, nothing written into
+your repos:
+
+- **`recall`** — searches the current project. `lethe search` transparently
+  reindexes any new/changed transcripts before searching, so results always
+  reflect your latest turns. Each hit is a raw user+assistant turn.
+- **`recall-global`** — searches every registered project (cross-repo).
+
+### Background freshness
+
+A `UserPromptSubmit` hook keeps the index current. On prompt submit it fires a
+**throttled, detached** `lethe index --all && lethe dedupe --all` — at most once
+every 15 minutes, backgrounded so it never blocks your prompt, single-flighted
+so runs don't pile up, and a no-op if `lethe` isn't on `PATH`. Because `recall`
+already reindexes the *current* project on demand, the hook's real job is
+keeping **other** registered projects fresh for cross-project `recall-global`
+(whose search opens them read-only and never reindexes).
+
+Tune or disable via env: `LETHE_REFRESH_INTERVAL` (seconds, default `900`) and
+`LETHE_HOME` (state dir, default `~/.lethe`). Set `LETHE_REFRESH_INTERVAL` very
+high to effectively disable it.
 
 ## CLI
 
-Invoked by the skill and the hooks; also usable directly.
+Invoked by the skills; also usable directly.
 
 ```
 lethe --version
-lethe index [DIR]               # reindex markdown files (default: .lethe/memory)
+lethe index                     # index this project's transcripts now (also warms a fresh clone)
+lethe index --all               # reindex every registered project at once
 lethe search "QUERY" --top-k 5
 lethe search "QUERY" --json-output
+lethe search "QUERY" --all      # across all registered projects
 lethe expand <chunk-id>
+lethe dedupe                    # merge near-duplicate chunks in this project
+lethe dedupe --dry-run          # preview the near-duplicate groups first
+lethe dedupe --all              # compact every registered project
 lethe status
 lethe config get KEY
 lethe config set KEY VALUE
-lethe reset --yes               # wipes .lethe/index/; markdown preserved
-lethe enrich [DIR]              # optional: Haiku enrichment (needs ANTHROPIC_API_KEY)
-lethe seed --days 7             # backfill memories from past Claude Code transcripts
+lethe reset --yes               # wipes this project's index (transcripts untouched)
 ```
 
-First-time adopters can backfill memories for the current project by running
-`lethe seed --days 7` (or `--days 30`) — it discovers past Claude Code
-transcripts under `~/.claude/projects/<slug>/`, summarizes each session via
-`claude -p --model haiku`, and writes anchored entries to `.lethe/memory/`.
-Idempotent on re-run.
+`lethe search` (and the `recall` skill) reindex on demand, so you rarely need
+`lethe index` explicitly — it's mainly for warming a fresh checkout ahead of
+time or after a `reset`.
 
 ## Requirements
 
@@ -58,11 +76,6 @@ Idempotent on re-run.
   `brew tap teimurjan/lethe && brew install lethe` (macOS / Linuxbrew) or
   `cargo install lethe-cli lethe-claude-code`, or download a release
   tarball from https://github.com/teimurjan/lethe/releases.
-- `claude` CLI for the Stop hook summarizer (uses your existing auth — no extra API key)
-
-## Debugging
-
-Set `LETHE_DEBUG=1` to write hook traces to `.lethe/hooks.log`.
 
 ## Reference
 
