@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.17.0](https://github.com/teimurjan/lethe/compare/lethe-plugins-v0.16.0...lethe-plugins-v0.17.0) (2026-07-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* index transcripts directly, offline dedupe, background auto-index
+
+### Features
+
+* Index transcripts directly, offline dedupe, background auto-index ([faeef99](https://github.com/teimurjan/lethe/commit/faeef99a69e177c32a87f01dec8727ee7d368761))
+
 ## [0.16.0](https://github.com/teimurjan/lethe/compare/lethe-plugins-v0.15.0...lethe-plugins-v0.16.0) (2026-05-29)
 
 
