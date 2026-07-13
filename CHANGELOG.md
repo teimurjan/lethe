@@ -1,20 +1,5 @@
 # Changelog
 
-## [1.0.0](https://github.com/teimurjan/lethe/compare/lethe-v0.14.0...lethe-v1.0.0) (2026-07-10)
-
-
-### ⚠ BREAKING CHANGES
-
-* Index Claude Code / Codex transcripts directly into a global `~/.lethe` index. Drops the per-repo `.lethe/md` store and the Haiku distillation pipeline; plugins are now skills-only (no hooks, nothing written into your repos).
-
-
-### Features
-
-* Two-column USER/ASSISTANT detail pane in the TUI
-* Recover pruned sessions from Claude `sessions-index.json`
-* `lethe index --all` reindexes every registered project
-* Project/transcript cleanup with TUI actions menu
-
 ## [0.14.0](https://github.com/teimurjan/lethe/compare/lethe-v0.13.0...lethe-v0.14.0) (2026-05-22)
 
 
