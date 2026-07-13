@@ -2,6 +2,7 @@
 
 pub mod cleanup;
 pub mod config;
+pub mod dedupe;
 pub mod expand;
 pub mod index;
 pub mod projects;

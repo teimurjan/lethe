@@ -83,6 +83,17 @@ pub struct Hit {
     pub score: f32,
 }
 
+/// Outcome of a [`MemoryStore::dedupe`] pass.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct DedupeReport {
+    /// Entries examined.
+    pub scanned: usize,
+    /// Near-duplicate groups found (size > 1).
+    pub groups: usize,
+    /// Entries absorbed into a canonical, i.e. `Σ (group_size − 1)`.
+    pub absorbed: usize,
+}
+
 #[derive(Clone)]
 pub struct MemoryStore {
     pub path: PathBuf,
@@ -618,6 +629,203 @@ impl MemoryStore {
         f(&g)
     }
 
+    /// Stamp the current on-disk index format. Call after a full
+    /// (re)build so a later `ensure_index_format` recognizes the index as
+    /// current-format. Stamping only here (never on a plain open) keeps a
+    /// stale populated index detectable until it is actually rebuilt.
+    /// No-op when read-only.
+    pub fn mark_index_format(&self) -> Result<(), crate::Error> {
+        if self.config.read_only {
+            return Ok(());
+        }
+        self.with_db(|db| {
+            db.set_stat(
+                crate::db::INDEX_FORMAT_KEY,
+                &crate::db::INDEX_FORMAT.to_string(),
+            )
+        })
+    }
+
+    /// Bulk-load pre-embedded entries into memory only — the DuckDB file
+    /// is left untouched, so nothing is persisted and state is lost on
+    /// drop. For ephemeral, throwaway stores (benchmarks, offline
+    /// experiments) over a large corpus, where a per-add similarity scan
+    /// would be quadratic and a full DB write would dominate. Each item
+    /// is `(id, content, embedding)`; the embedding is L2-normalized on
+    /// construction. Rebuilds the retrieval index once. Duplicate ids
+    /// overwrite.
+    pub fn ingest_ephemeral(
+        &self,
+        items: impl IntoIterator<Item = (String, String, Array1<f32>)>,
+    ) -> Result<(), crate::Error> {
+        let mut inner = self.inner.lock().unwrap();
+        for (id, content, emb) in items {
+            if emb.len() != self.config.dim {
+                return Err(crate::Error::DimensionMismatch {
+                    expected: self.config.dim,
+                    actual: emb.len(),
+                });
+            }
+            let entry = MemoryEntry::new(&id, &content, emb.view(), "", 0)?;
+            inner.embeddings.insert(id.clone(), entry.embedding.clone());
+            inner.ids.push(id.clone());
+            inner.entries.insert(id, entry);
+        }
+        inner.structure_dirty = true;
+        inner.rebuild_index_inplace(self.config.dim);
+        Ok(())
+    }
+
+    /// Absorbed chunk ids from prior `dedupe` runs. Transcript sync
+    /// treats these as already-present so a rewritten (dirty) transcript
+    /// doesn't resurrect a merged-away turn.
+    #[must_use]
+    pub fn aliased_ids(&self) -> HashSet<String> {
+        self.with_db(|db| db.aliased_ids().unwrap_or_default())
+    }
+
+    /// Offline near-duplicate compaction (SemDeDup-style). Clusters the
+    /// **entry** embeddings, unions within each cluster any pair with
+    /// cosine ≥ `threshold`, elects a canonical per group (most-retrieved,
+    /// then longest content), merges RIF metadata into it, and deletes the
+    /// rest — recording each absorbed id in the alias table so a later
+    /// re-index can't resurrect it. `dry_run` reports groups without
+    /// mutating anything.
+    #[allow(clippy::too_many_lines)] // one straight-line compaction pass
+    pub fn dedupe(&self, threshold: f32, dry_run: bool) -> Result<DedupeReport, crate::Error> {
+        let cfg = self.config.clone();
+        if cfg.read_only && !dry_run {
+            return Err(crate::Error::NotInitialized(
+                "dedupe requires a writable index",
+            ));
+        }
+        let mut inner = self.inner.lock().unwrap();
+        let n = inner.ids.len();
+        let mut report = DedupeReport {
+            scanned: n,
+            ..Default::default()
+        };
+        if n < 2 {
+            return Ok(report);
+        }
+
+        // Entry-embedding matrix in `ids` order (row i ↔ ids[i]).
+        let ids = inner.ids.clone();
+        let stacked = stack_embeddings(&ids, &inner.embeddings);
+
+        // Cluster the ENTRY embeddings — RIF centroids are built from
+        // *query* embeddings, so they're the wrong granularity here.
+        // Empty centroids (n_clusters == 0 or too few rows) → one bucket
+        // = full pairwise, which is correct if slower.
+        let centroids = build_clusters(stacked.view(), cfg.rif.n_clusters as usize);
+        let mut buckets: HashMap<usize, Vec<usize>> = HashMap::new();
+        if centroids.is_empty() {
+            buckets.insert(0, (0..n).collect());
+        } else {
+            for i in 0..n {
+                let c = assign_cluster(stacked.row(i), centroids.view());
+                buckets.entry(c).or_default().push(i);
+            }
+        }
+
+        // Union near-duplicate pairs within each cluster only — O(Σ nᵢ²).
+        let mut parent: Vec<usize> = (0..n).collect();
+        for rows in buckets.values() {
+            for (a, &i) in rows.iter().enumerate() {
+                for &j in &rows[a + 1..] {
+                    if stacked.row(i).dot(&stacked.row(j)) >= threshold {
+                        uf_union(&mut parent, i, j);
+                    }
+                }
+            }
+        }
+
+        // Bucket row indices by union-find root.
+        let mut groups: HashMap<usize, Vec<usize>> = HashMap::new();
+        for i in 0..n {
+            let r = uf_find(&mut parent, i);
+            groups.entry(r).or_default().push(i);
+        }
+
+        let mut removed: HashSet<String> = HashSet::new();
+        for members in groups.values() {
+            if members.len() < 2 {
+                continue;
+            }
+            report.groups += 1;
+            report.absorbed += members.len() - 1;
+            if dry_run {
+                continue;
+            }
+
+            // Canonical: max retrieval_count, then longest content, then
+            // smallest id (stable across runs).
+            let canonical = *members
+                .iter()
+                .max_by(|&&x, &&y| {
+                    let ex = &inner.entries[&ids[x]];
+                    let ey = &inner.entries[&ids[y]];
+                    ex.retrieval_count
+                        .cmp(&ey.retrieval_count)
+                        .then_with(|| ex.content.len().cmp(&ey.content.len()))
+                        .then_with(|| ey.id.cmp(&ex.id))
+                })
+                .expect("group is non-empty");
+            let canonical_id = ids[canonical].clone();
+
+            // Fold RIF metadata across the whole group into the canonical.
+            let mut sum_rc = 0_i64;
+            let mut max_aff = f32::MIN;
+            let mut min_supp = f32::MAX;
+            let mut max_last = i64::MIN;
+            for &m in members {
+                let e = &inner.entries[&ids[m]];
+                sum_rc += e.retrieval_count;
+                max_aff = max_aff.max(e.affinity);
+                min_supp = min_supp.min(e.suppression);
+                max_last = max_last.max(e.last_retrieved_step);
+            }
+
+            // Delete losers (db + memory), alias them to the canonical.
+            for &m in members {
+                if m == canonical {
+                    continue;
+                }
+                let loser_id = ids[m].clone();
+                {
+                    let g = self.db.lock().unwrap();
+                    g.delete_entry(&loser_id)?;
+                    g.delete_embedding(&loser_id)?;
+                    g.insert_alias(&loser_id, &canonical_id)?;
+                }
+                inner.entries.remove(&loser_id);
+                inner.embeddings.remove(&loser_id);
+                removed.insert(loser_id);
+            }
+
+            // Apply merged metadata and persist the canonical.
+            {
+                let c = inner
+                    .entries
+                    .get_mut(&canonical_id)
+                    .expect("canonical stays live");
+                c.retrieval_count = sum_rc;
+                c.affinity = max_aff;
+                c.suppression = min_supp;
+                c.last_retrieved_step = max_last;
+            }
+            let canon = inner.entries[&canonical_id].clone();
+            self.db.lock().unwrap().insert_entry(&canon)?;
+        }
+
+        if !removed.is_empty() {
+            inner.ids.retain(|id| !removed.contains(id));
+            inner.structure_dirty = true;
+            inner.rebuild_index_inplace(cfg.dim);
+        }
+        Ok(report)
+    }
+
     /// Read-only retrieve used by `UnionStore` cross-project gather.
     ///
     /// Returns top-`k` hits ranked by hybrid (BM25 + dense) RRF score
@@ -750,6 +958,25 @@ impl Inner {
             })
             .collect();
         self.bm25 = Some(BM25Okapi::new(&tokenized));
+    }
+}
+
+/// Union-find find with path halving. Used by [`MemoryStore::dedupe`].
+fn uf_find(parent: &mut [usize], mut x: usize) -> usize {
+    while parent[x] != x {
+        parent[x] = parent[parent[x]];
+        x = parent[x];
+    }
+    x
+}
+
+/// Union-find union. Roots merge arbitrarily (grouping is set-membership;
+/// canonical election is a separate, deterministic step).
+fn uf_union(parent: &mut [usize], a: usize, b: usize) {
+    let ra = uf_find(parent, a);
+    let rb = uf_find(parent, b);
+    if ra != rb {
+        parent[ra] = rb;
     }
 }
 
@@ -948,6 +1175,43 @@ mod tests {
         .unwrap();
         let res = s.retrieve("hi", 5);
         assert!(matches!(res, Err(crate::Error::NotInitialized(_))));
+    }
+
+    #[test]
+    fn dedupe_merges_near_duplicates_and_writes_alias() {
+        let dir = tempdir().unwrap();
+        let cfg = StoreConfig {
+            dim: 3,
+            // Disable the write-time gate so we can plant a near-dup pair.
+            dedup_threshold: 2.0,
+            rif: RifConfig {
+                n_clusters: 0,
+                ..RifConfig::default()
+            },
+            ..Default::default()
+        };
+        let store = MemoryStore::open(dir.path().join("s"), None, None, cfg).unwrap();
+        seed_entry(&store, "a", "alpha", ndarray::arr1(&[1.0, 0.0, 0.0])).unwrap();
+        seed_entry(&store, "b", "alpha too", ndarray::arr1(&[0.999, 0.001, 0.0])).unwrap();
+        seed_entry(&store, "c", "beta", ndarray::arr1(&[0.0, 1.0, 0.0])).unwrap();
+        assert_eq!(store.size(), 3);
+
+        // Dry run reports the group but changes nothing.
+        let dry = store.dedupe(0.95, true).unwrap();
+        assert_eq!((dry.groups, dry.absorbed), (1, 1));
+        assert_eq!(store.size(), 3);
+        assert!(store.aliased_ids().is_empty());
+
+        // Real run merges the near-dup pair, keeps the distinct entry.
+        let report = store.dedupe(0.95, false).unwrap();
+        assert_eq!((report.groups, report.absorbed), (1, 1));
+        assert_eq!(store.size(), 2);
+
+        let live = store.live_ids();
+        assert!(live.contains("c"), "distinct entry survives");
+        assert!(live.contains("a") ^ live.contains("b"), "exactly one survives");
+        let aliased = store.aliased_ids();
+        assert_eq!(aliased.len(), 1, "loser is aliased to the survivor");
     }
 
     #[test]

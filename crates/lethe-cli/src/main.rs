@@ -86,6 +86,21 @@ enum Cmd {
         key: Option<String>,
         value: Option<String>,
     },
+    /// Merge near-duplicate chunks in this project's index. Deletes by
+    /// default — pass `--dry-run` to preview the groups first.
+    Dedupe {
+        /// Report the near-duplicate groups without modifying the index.
+        #[arg(long)]
+        dry_run: bool,
+        /// Cosine cutoff override (default: config `dedup_threshold`).
+        #[arg(long)]
+        threshold: Option<f32>,
+        #[arg(long)]
+        json_output: bool,
+        /// Compact every registered project, not just the current one.
+        #[arg(long)]
+        all: bool,
+    },
     /// Delete this project's global index (transcripts are untouched).
     Reset {
         #[arg(long)]
@@ -200,6 +215,12 @@ fn dispatch(cli: Cli) -> anyhow::Result<i32> {
         Cmd::Config { action, key, value } => {
             commands::config::run(root, &action, key.as_deref(), value.as_deref())
         }
+        Cmd::Dedupe {
+            dry_run,
+            threshold,
+            json_output,
+            all,
+        } => commands::dedupe::run(root, threshold, dry_run, json_output, all),
         Cmd::Reset { yes } => commands::reset::run(root, yes),
         Cmd::Projects { action } => commands::projects::run(action),
         Cmd::Cleanup { yes, json_output } => commands::cleanup::run(yes, json_output),

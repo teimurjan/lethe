@@ -17,7 +17,7 @@ use crate::paths::{resolve, Paths};
 
 use lethe_core::transcript_index;
 
-use super::store_helpers::{load_config, open_store, CliConfig};
+use super::store_helpers::{ensure_index_format, load_config, open_store, CliConfig};
 
 #[derive(Serialize)]
 struct IndexCounts {
@@ -61,6 +61,7 @@ fn index_project(
     paths: &Paths,
     cfg: Option<&CliConfig>,
 ) -> Result<lethe_core::transcript_store::SyncCounts> {
+    ensure_index_format(&paths.index())?;
     std::fs::create_dir_all(paths.index())?;
     let loaded = if cfg.is_none() {
         Some(load_config(&paths.config_path())?)
@@ -71,6 +72,8 @@ fn index_project(
     let store = open_store(&paths.index(), cfg, true, false)?;
     let counts = transcript_index::ensure_fresh(&store, &paths.root)?;
     store.save()?;
+    // Index now reflects the current format (canonical ids).
+    store.mark_index_format()?;
     Ok(counts)
 }
 

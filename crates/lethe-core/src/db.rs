@@ -20,8 +20,16 @@ use std::time::Duration;
 use duckdb::{params, AccessMode, Config, Connection};
 use ndarray::{Array1, Array2, ArrayView1};
 
-use crate::dedup::content_hash;
+use crate::dedup::canonical_hash;
 use crate::entry::{MemoryEntry, Tier};
+
+/// On-disk index format version. Bumped when a change to how ids or
+/// `content_hash` are derived makes existing indexes incompatible, so
+/// `store_helpers::ensure_index_format` can wipe + rebuild from
+/// transcripts (the source of truth). v2 = ids/hashes over anchor-
+/// stripped content; anything unmarked (`0`) predates the change.
+pub const INDEX_FORMAT: u32 = 2;
+pub const INDEX_FORMAT_KEY: &str = "index_format";
 
 const SCHEMA: &str = r"
 CREATE TABLE IF NOT EXISTS entries (
@@ -74,6 +82,14 @@ CREATE TABLE IF NOT EXISTS entry_embeddings (
     entry_id TEXT PRIMARY KEY,
     dim INTEGER NOT NULL,
     vector BLOB NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS entry_alias (
+    -- Redirects an absorbed chunk id to the canonical entry it was
+    -- merged into by `lethe dedupe`. Consulted by transcript sync so a
+    -- rewritten (dirty) transcript doesn't resurrect a merged-away turn.
+    absorbed_id  TEXT PRIMARY KEY,
+    canonical_id TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS transcript_manifest (
@@ -200,7 +216,7 @@ impl MemoryDb {
                 f64::from(entry.affinity),
                 entry.retrieval_count,
                 entry.last_retrieved_step,
-                content_hash(&entry.content),
+                canonical_hash(&entry.content),
                 f64::from(entry.suppression),
             ],
         )?;
@@ -208,7 +224,7 @@ impl MemoryDb {
     }
 
     pub fn has_content_hash(&self, content: &str) -> Result<bool, crate::Error> {
-        let h = content_hash(content);
+        let h = canonical_hash(content);
         let mut stmt = self
             .conn
             .prepare("SELECT 1 FROM entries WHERE content_hash = ? LIMIT 1")?;
@@ -312,6 +328,46 @@ impl MemoryDb {
             params![key, value],
         )?;
         Ok(())
+    }
+
+    // -------- entry aliases (dedupe) --------
+
+    /// Record that `absorbed_id` was merged into `canonical_id`.
+    pub fn insert_alias(&self, absorbed_id: &str, canonical_id: &str) -> Result<(), crate::Error> {
+        self.conn.execute(
+            "INSERT OR REPLACE INTO entry_alias (absorbed_id, canonical_id) VALUES (?, ?)",
+            params![absorbed_id, canonical_id],
+        )?;
+        Ok(())
+    }
+
+    /// The set of absorbed (merged-away) chunk ids. Transcript sync skips
+    /// these so a dirty transcript can't re-add a chunk `dedupe` removed.
+    pub fn aliased_ids(&self) -> Result<std::collections::HashSet<String>, crate::Error> {
+        let mut stmt = self.conn.prepare("SELECT absorbed_id FROM entry_alias")?;
+        let mut rows = stmt.query([])?;
+        let mut out = std::collections::HashSet::new();
+        while let Some(r) = rows.next()? {
+            out.insert(r.get::<_, String>(0)?);
+        }
+        Ok(out)
+    }
+
+    /// Full `absorbed_id -> canonical_id` map. Used by tooling that must
+    /// redirect references to merged-away entries (e.g. remapping
+    /// benchmark qrels after a compaction pass).
+    pub fn alias_map(
+        &self,
+    ) -> Result<std::collections::HashMap<String, String>, crate::Error> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT absorbed_id, canonical_id FROM entry_alias")?;
+        let mut rows = stmt.query([])?;
+        let mut out = std::collections::HashMap::new();
+        while let Some(r) = rows.next()? {
+            out.insert(r.get::<_, String>(0)?, r.get::<_, String>(1)?);
+        }
+        Ok(out)
     }
 
     // -------- transcript manifest --------
@@ -618,6 +674,35 @@ mod tests {
     fn entry(id: &str, content: &str) -> MemoryEntry {
         let emb = arr1(&[1.0_f32, 0.0, 0.0]);
         MemoryEntry::new(id, content, emb.view(), "sess", 0).unwrap()
+    }
+
+    #[test]
+    fn content_hash_ignores_anchor() {
+        let dir = tempdir().unwrap();
+        let db = MemoryDb::open(dir.path().join("lethe.duckdb")).unwrap();
+        let anchored =
+            "<!-- session:s1 turn:u1 transcript:/a.jsonl -->\nUSER:\nhello\n\nASSISTANT:\nhi";
+        db.insert_entry(&entry("id1", anchored)).unwrap();
+        // Same exchange, different anchor → canonical hash matches, so
+        // the indexed exact-dedup gate fires.
+        let moved =
+            "<!-- session:s2 turn:u2 transcript:/b.jsonl -->\nUSER:\nhello\n\nASSISTANT:\nhi";
+        assert!(db.has_content_hash(moved).unwrap());
+        // Different body → absent.
+        let other =
+            "<!-- session:s1 turn:u1 transcript:/a.jsonl -->\nUSER:\nbye\n\nASSISTANT:\nlater";
+        assert!(!db.has_content_hash(other).unwrap());
+    }
+
+    #[test]
+    fn alias_round_trips() {
+        let dir = tempdir().unwrap();
+        let db = MemoryDb::open(dir.path().join("lethe.duckdb")).unwrap();
+        assert!(db.aliased_ids().unwrap().is_empty());
+        db.insert_alias("absorbed", "canonical").unwrap();
+        let ids = db.aliased_ids().unwrap();
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains("absorbed"));
     }
 
     #[test]

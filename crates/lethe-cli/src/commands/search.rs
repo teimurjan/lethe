@@ -13,7 +13,7 @@ use serde::Serialize;
 
 use crate::paths::resolve;
 
-use super::store_helpers::{load_config, open_store};
+use super::store_helpers::{ensure_index_format, load_config, open_store};
 
 #[derive(Serialize)]
 struct LocalHit {
@@ -46,12 +46,19 @@ pub fn run_local(
 ) -> Result<i32> {
     let paths = resolve(root);
     let cfg = load_config(&paths.config_path())?;
+    // Rebuild a stale-format index before opening for write. Skipped in
+    // read-only mode: the concurrent writer owns the rebuild, and wiping
+    // an index another process is reading would be unsafe.
+    if !read_only {
+        ensure_index_format(&paths.index())?;
+    }
     let store = open_store(&paths.index(), &cfg, true, read_only)?;
     // Freshen from any changed transcripts before retrieving. Skipped in
     // read-only mode (the lock-contention fallback): retrieval then runs
     // against whatever was last indexed.
     if !read_only {
         lethe_core::transcript_index::ensure_fresh(&store, &paths.root)?;
+        store.mark_index_format()?;
     }
     let hits = store.retrieve(query, top_k)?;
     if !read_only {

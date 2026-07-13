@@ -23,8 +23,9 @@ use crate::memory_store::MemoryStore;
 /// One indexable turn (a user prompt + the assistant reply that followed).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TurnChunk {
-    /// `chunk_hash` of the full anchored content — stable and unique per
-    /// (session, turn, transcript, text).
+    /// `chunk_hash` of the anchor-stripped body — stable across
+    /// sessions/transcripts, so the same exchange dedupes to one id
+    /// regardless of which transcript it was re-indexed from.
     pub id: String,
     pub session_id: String,
     /// Ordinal of the turn within its session (0-based).
@@ -55,7 +56,11 @@ pub fn build_chunk(
         assistant_text.trim(),
     );
     TurnChunk {
-        id: chunk_hash(&content),
+        // Hash the anchor-stripped body, not the anchored content: the
+        // anchor's session/turn/transcript values are volatile, so the
+        // same exchange re-indexed from a moved or recopied transcript
+        // must resolve to the same id (and be skipped by `live_ids`).
+        id: chunk_hash(&embed_content(&content)),
         session_id: session_id.to_owned(),
         turn_idx,
         content,
@@ -79,12 +84,15 @@ pub fn sync(chunks: &[TurnChunk], store: &MemoryStore) -> Result<SyncCounts, cra
     };
     store.bulk_add(|| {
         let existing = store.live_ids();
+        // Chunks a prior `dedupe` merged away: skip them so re-parsing a
+        // rewritten transcript can't resurrect an absorbed turn.
+        let aliased = store.aliased_ids();
 
         // Phase 1: gather new chunks and their embed inputs (stripped).
         let mut embed_inputs: Vec<String> = Vec::new();
         let mut pending: Vec<&TurnChunk> = Vec::new();
         for chunk in chunks {
-            if existing.contains(&chunk.id) {
+            if existing.contains(&chunk.id) || aliased.contains(&chunk.id) {
                 counts.unchanged += 1;
                 continue;
             }
@@ -155,9 +163,45 @@ mod tests {
     }
 
     #[test]
-    fn distinct_turns_get_distinct_ids() {
-        let a = build_chunk("s", "t1", "/x", "a", "b", 0);
-        let b = build_chunk("s", "t2", "/x", "a", "b", 1);
-        assert_ne!(a.id, b.id, "different turn uuids must not collide");
+    fn distinct_text_gets_distinct_ids() {
+        let a = build_chunk("s", "t1", "/x", "question one", "answer one", 0);
+        let b = build_chunk("s", "t2", "/x", "question two", "answer two", 1);
+        assert_ne!(a.id, b.id, "different exchanges must not collide");
+    }
+
+    #[test]
+    fn sync_skips_aliased_chunk() {
+        use crate::memory_store::{MemoryStore, StoreConfig};
+        let dir = tempfile::tempdir().unwrap();
+        let store = MemoryStore::open(
+            dir.path().join("s"),
+            None,
+            None,
+            StoreConfig {
+                dim: 3,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let chunk = build_chunk("s", "u1", "/x", "hello", "hi", 0);
+        // A prior `dedupe` absorbed this chunk into some canonical id.
+        store
+            .with_db(|db| db.insert_alias(&chunk.id, "canonical"))
+            .unwrap();
+        // Re-syncing it (as a rewritten transcript would) must not
+        // resurrect it — no encoder is even required since it's skipped.
+        let counts = sync(std::slice::from_ref(&chunk), &store).unwrap();
+        assert_eq!(counts.added, 0);
+        assert_eq!(counts.unchanged, 1);
+    }
+
+    #[test]
+    fn same_text_different_anchor_shares_id() {
+        // The same exchange re-indexed from a moved/renamed transcript
+        // (different session + transcript path) must resolve to one id so
+        // the write path dedupes it via `live_ids`.
+        let a = build_chunk("sess-a", "u1", "/old/path.jsonl", "hello", "hi", 0);
+        let b = build_chunk("sess-b", "u2", "/new/path.jsonl", "hello", "hi", 7);
+        assert_eq!(a.id, b.id, "anchor-only differences must not change the id");
     }
 }
