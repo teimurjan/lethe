@@ -4,6 +4,12 @@ Visualizations for lethe's retrieval behavior on LongMemEval. A
 Remotion (React) project under `src/` consumes JSON traces from
 `public/`. The traces are produced by the data collector script.
 
+The pipeline animation covers near-duplicate compaction, sparse + dense
+retrieval, RRF merging, cross-encoder reranking, and retrieval-induced
+forgetting. Dedupe is shown separately from RRF: semantic duplicates collapse
+to one canonical memory before retrieval, while RRF only fuses the same
+candidate returned by both retrievers.
+
 ## Collector
 
 ```bash

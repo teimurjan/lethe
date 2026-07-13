@@ -13,7 +13,7 @@ import {BG, FONT_MONO, TEXT_DIM} from "./theme";
 import type {RunData} from "./types";
 
 export const INTRO_FRAMES = 60;
-export const FLOW_FRAMES = 480;
+export const FLOW_FRAMES = 570;
 export const OUTRO_FRAMES = 150;
 
 export const LetheDemo: React.FC = () => {

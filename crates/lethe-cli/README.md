@@ -5,10 +5,17 @@ self-improving memory store for LLM agents.
 
 ## Install
 
+Homebrew installs the CLI and both coding-agent transcript adapters:
+
 ```bash
 brew tap teimurjan/lethe              # macOS / Linuxbrew (recommended)
 brew install lethe
-cargo install lethe-cli               # any platform with a Rust toolchain
+```
+
+For the standalone CLI only, use Cargo on any platform with a Rust toolchain:
+
+```bash
+cargo install lethe-cli
 ```
 
 Or download a tarball from [GitHub Releases](https://github.com/teimurjan/lethe/releases).
@@ -20,6 +27,8 @@ lethe                                # no args, in a TTY → opens the TUI
 lethe index                          # index the current project's transcripts into ~/.lethe
 lethe search "your query" --top-k 5
 lethe search "your query" --all      # cross-project (~/.lethe/projects.json)
+lethe dedupe --dry-run               # preview near-duplicate compaction
+lethe dedupe --all                   # compact every registered project
 lethe projects list|add|remove|prune
 lethe expand <chunk-id> [<chunk-id> ...]  # full markdown for one or more chunks
 lethe status                         # diagnostic JSON

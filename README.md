@@ -12,7 +12,40 @@ A memory store for LLM agents that **gets better the more you use it**. Hybrid B
 
 ## Install
 
-### Claude Code
+### 1. Install the CLI
+
+Homebrew installs `lethe` plus the Claude Code and Codex transcript adapters:
+
+```bash
+brew tap teimurjan/lethe
+brew install lethe
+```
+
+For the standalone CLI only, use Cargo on any platform with a Rust toolchain:
+
+```bash
+cargo install lethe-cli
+```
+
+Prebuilt bundles containing the CLI and both adapters are also available from
+[GitHub Releases](https://github.com/teimurjan/lethe/releases).
+
+Verify the installation, then index and search the current project's
+transcripts:
+
+```bash
+lethe --version
+lethe index
+lethe search "query" --top-k 5
+lethe                              # TUI
+```
+
+### 2. Add a coding agent
+
+The CLI works on its own. Install a plugin only if you want `recall` and
+`recall-global` available directly inside a coding agent.
+
+#### Claude Code
 
 ```
 /plugin marketplace add teimurjan/lethe
@@ -21,27 +54,29 @@ A memory store for LLM agents that **gets better the more you use it**. Hybrid B
 
 Recall via skills — lethe indexes your Claude Code transcripts directly and writes nothing into your repos. See [plugins/claude-code/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/claude-code/README.md).
 
-### Codex CLI
+#### Codex CLI
 
 ```bash
-brew tap teimurjan/lethe && brew install lethe   # lethe + lethe-codex binaries
 codex plugin marketplace add teimurjan/lethe
 ```
 
 Then run `codex`, open `/plugins`, and install **lethe** — it wires the `recall` / `recall-global` skills into Codex automatically. See [plugins/codex/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/codex/README.md).
 
-### CLI
+For Cargo installations, add the adapter used by your agent:
 
 ```bash
-brew install teimurjan/lethe/lethe       # or: cargo install lethe-cli
-
-lethe                                    # TUI
-lethe search "query" --top-k 5           # one project
-lethe search "query" --all --top-k 5     # all registered projects
-lethe index                              # index the current project's transcripts
+cargo install lethe-claude-code   # Claude Code
+cargo install lethe-codex         # Codex CLI
 ```
 
-![lethe TUI](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/tui.gif)
+Cross-project search and periodic compaction are also available from the CLI:
+
+```bash
+lethe search "query" --all --top-k 5
+lethe dedupe --all
+```
+
+![lethe TUI](https://raw.githubusercontent.com/teimurjan/lethe/main/assets/tui.png)
 
 ### Python
 

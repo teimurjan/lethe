@@ -18,11 +18,12 @@ type Props = {
 };
 
 const PHASES = [
-  {key: "query", title: "query", start: 0, end: 90},
-  {key: "retrieve", title: "retrieve", start: 90, end: 210},
-  {key: "merge", title: "merge", start: 210, end: 300},
-  {key: "rerank", title: "rerank", start: 300, end: 390},
-  {key: "learn", title: "learn", start: 390, end: 480},
+  {key: "dedupe", title: "dedupe", start: 0, end: 90},
+  {key: "query", title: "query", start: 90, end: 180},
+  {key: "retrieve", title: "retrieve", start: 180, end: 300},
+  {key: "merge", title: "merge", start: 300, end: 390},
+  {key: "rerank", title: "rerank", start: 390, end: 480},
+  {key: "learn", title: "learn", start: 480, end: 570},
 ] as const;
 
 type PhaseKey = (typeof PHASES)[number]["key"];
@@ -45,7 +46,7 @@ const QUERY = "PostgreSQL connection pool config";
 const SPARSE = ["eD", "e1", "e2"];
 // Dense: meaning matters, distractor falls
 const DENSE = ["e1", "e2", "eD"];
-// Merged (RRF) — duplicates fuse by id; eD's high sparse rank pulls it to #2
+// Merged (RRF) — the same candidates fuse by id; eD's sparse rank pulls it to #2
 const MERGED = ["e1", "eD", "e2"];
 // After cross-encoder, distractor crashes to the bottom
 const RERANKED = ["e1", "e2", "eD"];
@@ -83,6 +84,7 @@ export const PipelineFlow: React.FC<Props> = ({frame, durationInFrames}) => {
           minHeight: 0,
         }}
       >
+        {phase === "dedupe" && <DedupeView frame={frame} fps={fps} />}
         {phase === "query" && <QueryView frame={frame} fps={fps} />}
         {phase === "retrieve" && <RetrieveView frame={frame} fps={fps} />}
         {phase === "merge" && <MergeView frame={frame} fps={fps} />}
@@ -101,7 +103,7 @@ const currentPhase = (frame: number): PhaseKey => {
   for (let i = PHASES.length - 1; i >= 0; i--) {
     if (frame >= PHASES[i].start) return PHASES[i].key;
   }
-  return "query";
+  return "dedupe";
 };
 
 const PhaseTitle: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
@@ -170,8 +172,46 @@ const PhaseDots: React.FC<{phase: PhaseKey}> = ({phase}) => {
 
 // ─────────────────────────────────────────────────────────────────────
 
-const QueryView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
+const DedupeView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
   const local = frame - PHASES[0].start;
+  const progress = interpolate(local, [12, 68], [0, 1], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const duplicateOpacity = interpolate(progress, [0.25, 0.7], [1, 0], {
+    extrapolateLeft: "clamp",
+    extrapolateRight: "clamp",
+  });
+  const canonicalX = interpolate(progress, [0, 1], [-170, 170]);
+  const duplicateX = interpolate(progress, [0, 1], [170, -170]);
+  const label = spring({
+    frame: Math.max(0, local - 48),
+    fps,
+    config: {damping: 200, stiffness: 220, mass: 0.6},
+    durationInFrames: 16,
+  });
+
+  return (
+    <div style={{display: "flex", flexDirection: "column", alignItems: "center", gap: 30}}>
+      <div style={{position: "relative", width: 900, height: 170}}>
+        <div style={{position: "absolute", left: 0, width: 560, transform: `translateX(${canonicalX}px)`}}>
+          <DocCard doc={{id: "d1", label: "PgBouncer: cap asyncpg pools at 10", kind: "good"}} size="lg" />
+        </div>
+        <div style={{position: "absolute", right: 0, width: 560, opacity: duplicateOpacity, transform: `translateX(${duplicateX}px)`}}>
+          <DocCard doc={{id: "d2", label: "Keep asyncpg pools small behind PgBouncer", kind: "good"}} size="lg" />
+        </div>
+      </div>
+      <div style={{opacity: label, color: LETHE, fontSize: 26}}>
+        cosine ≥ 0.95 · keep one canonical memory
+      </div>
+    </div>
+  );
+};
+
+// ─────────────────────────────────────────────────────────────────────
+
+const QueryView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
+  const local = frame - PHASES[1].start;
   const s = spring({
     frame: Math.max(0, local - 8),
     fps,
@@ -213,7 +253,7 @@ const QueryView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
 // ─────────────────────────────────────────────────────────────────────
 
 const RetrieveView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
-  const local = frame - PHASES[1].start;
+  const local = frame - PHASES[2].start;
   return (
     <div style={{display: "flex", gap: 40, width: "100%", alignItems: "stretch"}}>
       <Lane
@@ -327,7 +367,7 @@ const DocCard: React.FC<{
 // ─────────────────────────────────────────────────────────────────────
 
 const MergeView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
-  const local = frame - PHASES[2].start;
+  const local = frame - PHASES[3].start;
   // Step 1: show two stacks
   // Step 2: arrows indicate fusion
   // Step 3: merged single column
@@ -414,7 +454,7 @@ const MergeView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
             marginBottom: 4,
           }}
         >
-          duplicates fuse by id
+          same candidates fuse by id
         </div>
         {MERGED.map((id) => (
           <DocCard key={id} doc={DOCS[id]} size="lg" />
@@ -427,7 +467,7 @@ const MergeView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
 // ─────────────────────────────────────────────────────────────────────
 
 const RerankView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
-  const local = frame - PHASES[3].start;
+  const local = frame - PHASES[4].start;
   const reorderProgress = interpolate(local, [10, 60], [0, 1], {
     extrapolateLeft: "clamp",
     extrapolateRight: "clamp",
@@ -481,7 +521,7 @@ const RerankView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
 // ─────────────────────────────────────────────────────────────────────
 
 const LearnView: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
-  const local = frame - PHASES[4].start;
+  const local = frame - PHASES[5].start;
   // Two events: bad doc → suppressed, good doc → reinforced
   const badProgress = interpolate(local, [12, 50], [0, 1], {
     extrapolateLeft: "clamp",
@@ -589,7 +629,7 @@ const Effect: React.FC<{
 };
 
 const ClosingLine: React.FC<{frame: number; fps: number}> = ({frame, fps}) => {
-  const local = frame - PHASES[4].start;
+  const local = frame - PHASES[5].start;
   const s = spring({
     frame: Math.max(0, local - 70),
     fps,
