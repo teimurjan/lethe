@@ -98,7 +98,6 @@ published is `release.yml` after every artifact is attached.
    ```bash
    # Replace the previous release's macOS files
    rm -f release_artifacts/lethe-macos-arm64* \
-         release_artifacts/lethe-claude-code-macos-arm64* \
          release_artifacts/lethe_memory-*-macosx*.whl
    scripts/release/build.sh --napi --pypi
    git add release_artifacts/

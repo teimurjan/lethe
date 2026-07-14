@@ -792,17 +792,10 @@ fn omp_message_text(msg: &Value) -> String {
     };
     let mut parts = Vec::new();
     for block in blocks {
-        match block.get("type").and_then(|v| v.as_str()) {
-            Some("text") => {
-                if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
-                    parts.push(text.to_owned());
-                }
+        if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+            if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                parts.push(text.to_owned());
             }
-            Some("toolCall") => {
-                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("?");
-                parts.push(format!("[tool_use: {name}]"));
-            }
-            _ => {}
         }
     }
     parts.join("\n")
@@ -916,9 +909,26 @@ mod tests {
         assert_eq!(parsed.cwd.as_deref(), Some("/repo"));
         assert_eq!(parsed.chunks.len(), 3);
         assert!(parsed.chunks[0].content.contains("turn:u1"));
-        assert!(parsed.chunks[0].content.contains("[tool_use: read]\ndone"));
+        assert!(!parsed.chunks[0].content.contains("[tool_use:"));
+        assert!(parsed.chunks[0].content.contains("done"));
         assert!(parsed.chunks[1].content.contains("second answer"));
         assert!(parsed.chunks[2].content.contains("alternate answer"));
+        fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn parse_omp_skips_turns_without_assistant_text() {
+        let p = write_jsonl(
+            "omp-tool-only",
+            &[
+                r#"{"type":"session","version":3,"id":"sess-o","cwd":"/repo"}"#,
+                r#"{"type":"message","id":"u1","parentId":null,"message":{"role":"user","content":[{"type":"text","text":"inspect"}]}}"#,
+                r#"{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hidden"},{"type":"toolCall","name":"read"}]}}"#,
+                r#"{"type":"message","id":"r1","parentId":"a1","message":{"role":"toolResult","content":[{"type":"text","text":"tool output"}]}}"#,
+            ],
+        );
+        let parsed = parse_omp_file(&p);
+        assert!(parsed.chunks.is_empty());
         fs::remove_file(&p).ok();
     }
 }

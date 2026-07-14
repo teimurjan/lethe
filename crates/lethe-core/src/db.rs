@@ -23,12 +23,12 @@ use ndarray::{Array1, Array2, ArrayView1};
 use crate::dedup::canonical_hash;
 use crate::entry::{MemoryEntry, Tier};
 
-/// On-disk index format version. Bumped when a change to how ids or
-/// `content_hash` are derived makes existing indexes incompatible, so
-/// `store_helpers::ensure_index_format` can wipe + rebuild from
-/// transcripts (the source of truth). v2 = ids/hashes over anchor-
-/// stripped content; anything unmarked (`0`) predates the change.
-pub const INDEX_FORMAT: u32 = 2;
+/// On-disk index format version. Bumped when stored content, ids, or
+/// `content_hash` derivation changes make existing indexes incompatible, so
+/// `store_helpers::ensure_index_format` can wipe + rebuild from transcripts
+/// (the source of truth). v2 introduced ids/hashes over anchor-stripped
+/// content; v3 removes tool-call-only text from Oh My Pi turns.
+pub const INDEX_FORMAT: u32 = 3;
 pub const INDEX_FORMAT_KEY: &str = "index_format";
 
 const SCHEMA: &str = r"

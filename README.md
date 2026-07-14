@@ -14,7 +14,7 @@ A memory store for LLM agents that **gets better the more you use it**. Hybrid B
 
 ### 1. Install the CLI
 
-Homebrew installs `lethe` plus the Claude Code and Codex transcript adapters:
+Homebrew installs the `lethe` CLI:
 
 ```bash
 brew tap teimurjan/lethe
@@ -27,7 +27,7 @@ For the standalone CLI only, use Cargo on any platform with a Rust toolchain:
 cargo install lethe-cli
 ```
 
-Prebuilt bundles containing the CLI and both adapters are also available from
+Prebuilt CLI bundles are also available from
 [GitHub Releases](https://github.com/teimurjan/lethe/releases).
 
 Verify the installation, then index and search the current project's Claude
@@ -74,13 +74,6 @@ omp plugin install lethe@teimurjan
 
 Restart `omp` to load the `recall` / `recall-global` skills and the background
 index freshness hook. See [plugins/omp/README.md](https://github.com/teimurjan/lethe/blob/main/plugins/omp/README.md).
-
-For Cargo installations, add the adapter used by your agent:
-
-```bash
-cargo install lethe-claude-code   # Claude Code
-cargo install lethe-codex         # Codex CLI
-```
 
 Cross-project search and periodic compaction are also available from the CLI:
 

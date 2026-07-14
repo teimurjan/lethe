@@ -6,11 +6,9 @@
 # accessible via the GitHub Releases page; the repo only carries
 # the latest set.
 #
-# Broad glob: anything starting with `lethe` in `release_artifacts/`
-# is a release artifact — the loose `lethe-*-arm64` and
-# `lethe-claude-code-*-arm64` binaries (no extension), the
-# `.tar.gz` / `.zip` / `.node` archives, and the `lethe_memory-*.whl`
-# Python wheels. Single rule covers everything.
+# Broad glob: anything starting with `lethe` in `release_artifacts/` is a
+# release artifact — tarballs, wheels, and `.node` archives. Single rule covers
+# everything.
 release_artifacts/lethe* filter=lfs diff=lfs merge=lfs -text
 
 # Treat the Python reference implementation as vendored so GitHub

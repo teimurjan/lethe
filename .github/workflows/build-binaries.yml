@@ -153,7 +153,7 @@ jobs:
             echo "$lib missing under $dir; clearing libduckdb-sys fingerprint to force build.rs re-run"
             rm -rf "target/${{ matrix.target }}/release/build/libduckdb-sys-"*
           fi
-      - name: build cli + claude-code + codex + napi
+      - name: build cli + napi
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
         shell: bash
@@ -162,7 +162,7 @@ jobs:
         # Maturin still runs separately because PyO3's `ext-module`
         # feature changes the link recipe; it'll reuse the warm target/
         # for shared deps.
-        run: cargo build --release --target ${{ matrix.target }} -p lethe-cli -p lethe-claude-code -p lethe-codex -p lethe-node
+        run: cargo build --release --target ${{ matrix.target }} -p lethe-cli -p lethe-node
       - name: package tarball / zip + collect napi
         shell: bash
         run: |
@@ -175,20 +175,14 @@ jobs:
           # libduckdb only resolves when shipped next to the binary.
           if [ "${{ runner.os }}" = "Windows" ]; then
             cp "$REL/lethe.exe"             "$STAGE/"
-            cp "$REL/lethe-claude-code.exe" "$STAGE/"
-            cp "$REL/lethe-codex.exe"       "$STAGE/"
             cp "$DEPS/duckdb.dll"           "$STAGE/"
             cp "$REL/lethe_node.dll"        "lethe-${{ matrix.friendly }}.node"
           elif [ "${{ runner.os }}" = "Linux" ]; then
             cp "$REL/lethe"             "$STAGE/"
-            cp "$REL/lethe-claude-code" "$STAGE/"
-            cp "$REL/lethe-codex"       "$STAGE/"
             cp "$DEPS/libduckdb.so"     "$STAGE/"
             cp "$REL/liblethe_node.so"  "lethe-${{ matrix.friendly }}.node"
           else
             cp "$REL/lethe"                "$STAGE/"
-            cp "$REL/lethe-claude-code"    "$STAGE/"
-            cp "$REL/lethe-codex"          "$STAGE/"
             cp "$DEPS/libduckdb.dylib"     "$STAGE/"
             cp "$REL/liblethe_node.dylib"  "lethe-${{ matrix.friendly }}.node"
           fi

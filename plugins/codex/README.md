@@ -5,8 +5,8 @@ Persistent memory across [Codex CLI](https://developers.openai.com/codex) sessio
 ## Install
 
 ```bash
-# 1. Install the lethe binaries
-brew tap teimurjan/lethe && brew install lethe   # or: cargo install lethe-cli lethe-codex
+# 1. Install lethe
+brew tap teimurjan/lethe && brew install lethe   # or: cargo install lethe-cli
 
 # 2. Add the marketplace, then install from Codex
 codex plugin marketplace add teimurjan/lethe
@@ -53,7 +53,7 @@ high to effectively disable it.
 
 ## Requirements
 
-- `lethe`, `lethe-codex` (and `lethe-claude-code` if you also use the Claude Code plugin) binaries on PATH. Install with `brew tap teimurjan/lethe && brew install lethe` or `cargo install lethe-cli lethe-codex`.
+- `lethe` on PATH. Install with `brew tap teimurjan/lethe && brew install lethe` or `cargo install lethe-cli`.
 - Codex CLI.
 
 ## Reference

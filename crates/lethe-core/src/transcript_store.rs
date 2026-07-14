@@ -4,8 +4,7 @@
 //! module indexes agent transcripts (Claude Code, Codex, and Oh My Pi JSONL)
 //! directly.
 //! Each user+assistant turn becomes one chunk carrying a progressive-
-//! disclosure anchor, so `expand` and `lethe-claude-code transcript
-//! <path> --turn <uuid>` keep working unchanged.
+//! disclosure anchor for provenance and `lethe expand`.
 //!
 //! Chunk content keeps the anchor (`<!-- session:S turn:T transcript:P -->`)
 //! for provenance; the bi-encoder embedding and BM25/rerank inputs run
@@ -37,8 +36,8 @@ pub struct TurnChunk {
 
 /// Build a [`TurnChunk`] from one parsed turn.
 ///
-/// `turn_uuid` must be the **user record's uuid** so the anchor's `turn:`
-/// field matches what `pair_for_turn` keys on for drill-down.
+/// `turn_uuid` is the source transcript's user-record id and is retained in
+/// the anchor for provenance.
 #[must_use]
 pub fn build_chunk(
     session_id: &str,

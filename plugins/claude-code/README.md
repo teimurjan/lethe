@@ -72,10 +72,9 @@ time or after a `reset`.
 
 ## Requirements
 
-- `lethe` and `lethe-claude-code` binaries on PATH. Install with
-  `brew tap teimurjan/lethe && brew install lethe` (macOS / Linuxbrew) or
-  `cargo install lethe-cli lethe-claude-code`, or download a release
-  tarball from https://github.com/teimurjan/lethe/releases.
+- `lethe` on PATH. Install with `brew tap teimurjan/lethe && brew install lethe`
+  (macOS / Linuxbrew), `cargo install lethe-cli`, or a release tarball from
+  <https://github.com/teimurjan/lethe/releases>.
 
 ## Reference
 
