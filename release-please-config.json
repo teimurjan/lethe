@@ -7,7 +7,7 @@
       "package-name": "lethe",
       "component": "lethe",
       "changelog-path": "CHANGELOG.md",
-      "exclude-paths": ["plugins", ".agents"],
+      "exclude-paths": ["plugins", ".agents", ".omp-plugin"],
       "extra-files": [
         "research_playground/lethe_reference/lethe/__init__.py",
         "research_playground/lethe_reference/pyproject.toml",
@@ -52,6 +52,16 @@
         {
           "type": "json",
           "path": "/.claude-plugin/marketplace.json",
+          "jsonpath": "$.plugins[*].version"
+        },
+        {
+          "type": "json",
+          "path": "/.omp-plugin/marketplace.json",
+          "jsonpath": "$.metadata.version"
+        },
+        {
+          "type": "json",
+          "path": "/.omp-plugin/marketplace.json",
           "jsonpath": "$.plugins[*].version"
         },
         {

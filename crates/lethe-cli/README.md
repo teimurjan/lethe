@@ -47,6 +47,8 @@ search input.
 
 - [Project landing page](https://github.com/teimurjan/lethe) — architecture, benchmarks, research journey
 - [`lethe-core`](https://crates.io/crates/lethe-core) — embed the retrieval pipeline in your own Rust app
-- [Claude Code plugin](https://github.com/teimurjan/lethe/tree/main/plugins/claude-code) — recall skills backed by transcript indexing
+- Coding-agent plugins: [Claude Code](https://github.com/teimurjan/lethe/tree/main/plugins/claude-code),
+  [Codex](https://github.com/teimurjan/lethe/tree/main/plugins/codex), and
+  [Oh My Pi](https://github.com/teimurjan/lethe/tree/main/plugins/omp)
 
 License: MIT.

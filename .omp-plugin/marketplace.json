@@ -1,0 +1,33 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "teimurjan",
+  "owner": {
+    "name": "Teimur Gasanov"
+  },
+  "metadata": {
+    "description": "Self-improving memory for Oh My Pi — transcript indexing, hybrid retrieval, and RIF",
+    "version": "0.17.0"
+  },
+  "plugins": [
+    {
+      "name": "lethe",
+      "description": "Persistent memory across Oh My Pi sessions — hybrid BM25+dense retrieval and clustered retrieval-induced forgetting.",
+      "version": "0.17.0",
+      "source": "./plugins/omp",
+      "author": {
+        "name": "Teimur Gasanov"
+      },
+      "homepage": "https://github.com/teimurjan/lethe",
+      "repository": "https://github.com/teimurjan/lethe",
+      "license": "MIT",
+      "keywords": [
+        "memory",
+        "rif",
+        "hybrid-retrieval",
+        "transcripts",
+        "oh-my-pi"
+      ],
+      "category": "productivity"
+    }
+  ]
+}
