@@ -1,7 +1,8 @@
 //! Turn-level transcript indexing.
 //!
 //! Where `markdown_store` chunks curated `.lethe/memory/*.md` files, this
-//! module indexes agent transcripts (Claude Code / Codex JSONL) directly.
+//! module indexes agent transcripts (Claude Code, Codex, and Oh My Pi JSONL)
+//! directly.
 //! Each user+assistant turn becomes one chunk carrying a progressive-
 //! disclosure anchor, so `expand` and `lethe-claude-code transcript
 //! <path> --turn <uuid>` keep working unchanged.

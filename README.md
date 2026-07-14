@@ -30,8 +30,8 @@ cargo install lethe-cli
 Prebuilt bundles containing the CLI and both adapters are also available from
 [GitHub Releases](https://github.com/teimurjan/lethe/releases).
 
-Verify the installation, then index and search the current project's
-transcripts:
+Verify the installation, then index and search the current project's Claude
+Code, Codex, and Oh My Pi transcripts:
 
 ```bash
 lethe --version
@@ -39,6 +39,9 @@ lethe index
 lethe search "query" --top-k 5
 lethe                              # TUI
 ```
+
+Transcript discovery uses `~/.claude`, `~/.codex`, and `~/.omp/agent` by
+default and honors each agent's directory override environment variables.
 
 ### 2. Add a coding agent
 

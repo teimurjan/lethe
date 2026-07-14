@@ -70,6 +70,7 @@ fn source_label(s: Source) -> &'static str {
     match s {
         Source::ClaudeCode => "claude",
         Source::Codex => "codex",
+        Source::OhMyPi => "omp",
     }
 }
 

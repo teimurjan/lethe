@@ -1,7 +1,7 @@
 //! `lethe reset` — wipe this project's global index directory.
 //!
-//! Transcripts under `~/.claude` / `~/.codex` are untouched, so the next
-//! `lethe index` / `lethe search` rebuilds from them. This is also the
+//! Transcripts under `~/.claude`, `~/.codex`, and `~/.omp/agent` are
+//! untouched, so the next `lethe index` / `lethe search` rebuilds from them. This is also the
 //! way to prune turns left behind by transcript compaction (a full
 //! rebuild only re-adds turns still present in the current transcripts).
 
