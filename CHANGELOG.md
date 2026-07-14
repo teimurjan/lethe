@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.16.0](https://github.com/teimurjan/lethe/compare/lethe-v0.15.0...lethe-v0.16.0) (2026-07-14)
+
+
+### Features
+
+* Add Oh My Pi memory integration ([#51](https://github.com/teimurjan/lethe/issues/51)) ([ec8b7a1](https://github.com/teimurjan/lethe/commit/ec8b7a1f893019f70a6d424b452d76fbb06c582f))
+
 ## [0.15.0](https://github.com/teimurjan/lethe/compare/lethe-v0.14.0...lethe-v0.15.0) (2026-07-13)
 
 
