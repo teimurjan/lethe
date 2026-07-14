@@ -17,7 +17,6 @@ plus PyPI / npm bindings.
   - `lethe-tui` — ratatui library called from the CLI on no-arg invocation.
   - `lethe-py` — PyO3 binding → PyPI `lethe-memory`.
   - `lethe-node` — napi-rs binding → npm `lethe`.
-  - `lethe-claude-code` / `lethe-codex` — adapter binaries (transcript drill-down).
   - `lethe-benchmark` — internal parity bench helper (`publish = false`).
 - **DuckDB** for entry metadata + embedding BLOBs (single source of truth).
 - **ONNX Runtime** (via `ort`) for the bi-encoder + cross-encoder.
@@ -31,7 +30,7 @@ plus PyPI / npm bindings.
 
 ```bash
 # Rust workspace
-cargo build --workspace --release        # → target/release/lethe + lethe-claude-code
+cargo build --workspace --release        # → target/release/lethe
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
@@ -108,7 +107,6 @@ that gets surfaced on the registry it ships to:
 | `crates/lethe-core/README.md` | crates.io `lethe-core` |
 | `crates/lethe-cli/README.md`  | crates.io `lethe-cli` |
 | `crates/lethe-tui/README.md`  | crates.io `lethe-tui` |
-| `crates/lethe-claude-code/README.md` | crates.io `lethe-claude-code` |
 | `crates/lethe-py/README.md`   | PyPI `lethe-memory` |
 | `crates/lethe-node/README.md` | npm `lethe` |
 | Root `README.md`              | GitHub repo landing page |

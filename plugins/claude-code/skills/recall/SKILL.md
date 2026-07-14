@@ -35,13 +35,7 @@ Find memories relevant to: $ARGUMENTS
 
 3. **Expand.** For the top 2–3 hits, run `lethe expand <id1> <id2> <id3>` (multi-arg, single call) to see the full turn body. Output is plain text with `=== <id> ===` headers between chunks.
 
-4. **Drill further (only if critical).** Each chunk carries a `<!-- session:<uuid> turn:<uuid> transcript:<path> -->` anchor. If the user's question genuinely needs the surrounding dialogue (e.g. debugging a decision, tracing a subtle error), run:
-
-   `lethe-claude-code transcript <transcript-path> --turn <turn-uuid>`
-
-   This returns the exact user turn and assistant response as plain text.
-
-5. **Summarize.** Return a concise, source-referenced answer:
+4. **Summarize.** Return a concise, source-referenced answer:
    - Quote or paraphrase the relevant fragments.
    - Cite which session each piece came from when it disambiguates.
    - If nothing clearly applies, say "No relevant memories found in this project — consider running recall-global." — do not fabricate.
