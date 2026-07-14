@@ -24,7 +24,7 @@ Or download a tarball from [GitHub Releases](https://github.com/teimurjan/lethe/
 
 ```bash
 lethe                                # no args, in a TTY → opens the TUI
-lethe index                          # index the current project's transcripts into ~/.lethe
+lethe index                          # index this project's Claude/Codex/OMP transcripts
 lethe search "your query" --top-k 5
 lethe search "your query" --all      # cross-project (~/.lethe/projects.json)
 lethe dedupe --dry-run               # preview near-duplicate compaction
@@ -47,6 +47,8 @@ search input.
 
 - [Project landing page](https://github.com/teimurjan/lethe) — architecture, benchmarks, research journey
 - [`lethe-core`](https://crates.io/crates/lethe-core) — embed the retrieval pipeline in your own Rust app
-- [Claude Code plugin](https://github.com/teimurjan/lethe/tree/main/plugins/claude-code) — recall skills backed by transcript indexing
+- Coding-agent plugins: [Claude Code](https://github.com/teimurjan/lethe/tree/main/plugins/claude-code),
+  [Codex](https://github.com/teimurjan/lethe/tree/main/plugins/codex), and
+  [Oh My Pi](https://github.com/teimurjan/lethe/tree/main/plugins/omp)
 
 License: MIT.

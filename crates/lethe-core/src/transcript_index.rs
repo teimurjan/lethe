@@ -1,7 +1,7 @@
 //! Transcript discovery + incremental indexing.
 //!
-//! lethe indexes the agent transcripts (Claude Code / Codex JSONL) directly,
-//! at turn granularity, into the per-project store.
+//! lethe indexes agent transcripts (Claude Code, Codex, and Oh My Pi JSONL)
+//! directly, at turn granularity, into the per-project store.
 //!
 //! Claude Code writes one JSONL per session under
 //! `$CLAUDE_CONFIG_DIR/projects/<slug>/` where `<slug>` is the launch cwd
@@ -10,19 +10,21 @@
 //! main worktree), discovery enumerates every worktree of the repo and
 //! scans all matching slugs, filtering by the transcript's recorded `cwd`.
 //!
-//! Codex writes JSONL under `$CODEX_HOME/sessions/**` with no per-project
-//! directory, so its whole tree is walked and filtered by `cwd`.
+//! Codex and Oh My Pi write JSONL under their global session directories
+//! without per-project lookup metadata, so those trees are walked and filtered
+//! by each transcript's recorded `cwd`.
 //!
 //! [`ensure_fresh`] is the freshness hook run before a search: it stats
 //! every candidate transcript, reparses only those whose (mtime, size)
 //! diverge from the manifest, and add-only-syncs their turns.
 //!
-//! Parsing ([`parse_claude_file`] / [`parse_codex_file`]) returns the
+//! Parsing ([`parse_claude_file`], [`parse_codex_file`], and
+//! [`parse_omp_file`]) returns the
 //! recorded `cwd` alongside the turn chunks and does **not** filter by
 //! cwd — the caller decides. `ensure_fresh` applies the cwd filter; the
 //! `maintenance` module reuses the raw parse to scan for stale transcripts.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -38,11 +40,12 @@ use crate::transcript_store::{build_chunk, sync, SyncCounts, TurnChunk};
 pub enum Source {
     ClaudeCode,
     Codex,
+    OhMyPi,
 }
 
 #[must_use]
 pub fn all_sources() -> Vec<Source> {
-    vec![Source::ClaudeCode, Source::Codex]
+    vec![Source::ClaudeCode, Source::Codex, Source::OhMyPi]
 }
 
 /// A parsed transcript: its recorded working directory (if any) plus the
@@ -106,6 +109,7 @@ pub fn parse_file(path: &Path, source: Source) -> ParsedFile {
     match source {
         Source::ClaudeCode => parse_claude_file(path),
         Source::Codex => parse_codex_file(path),
+        Source::OhMyPi => parse_omp_file(path),
     }
 }
 
@@ -179,7 +183,7 @@ pub fn read_cwd(path: &Path, source: Source) -> Option<String> {
             continue;
         };
         let holder = match source {
-            Source::ClaudeCode => &rec,
+            Source::ClaudeCode | Source::OhMyPi => &rec,
             Source::Codex => rec.get("payload").unwrap_or(&rec),
         };
         if let Some(c) = holder.get("cwd").and_then(|v| v.as_str()) {
@@ -237,6 +241,19 @@ fn discover_files(project_root: &Path, sources: &[Source]) -> Vec<FileEntry> {
             }
         }
     }
+    if sources.contains(&Source::OhMyPi) {
+        for path in omp_session_files() {
+            if let Ok(meta) = fs::metadata(&path) {
+                let (mtime_ns, size_bytes) = stat_ns(&meta);
+                out.push(FileEntry {
+                    source: Source::OhMyPi,
+                    path,
+                    mtime_ns,
+                    size_bytes,
+                });
+            }
+        }
+    }
     out
 }
 
@@ -256,6 +273,47 @@ pub fn codex_home() -> PathBuf {
         return PathBuf::from(dir);
     }
     home().join(".codex")
+}
+
+/// Oh My Pi's agent data directory. A named `OMP_PROFILE` / `PI_PROFILE`
+/// selects its profile directory; otherwise `PI_CODING_AGENT_DIR` overrides
+/// the default below `PI_CONFIG_DIR` (normally `~/.omp/agent`).
+#[must_use]
+pub fn omp_agent_dir() -> PathBuf {
+    let config = std::env::var_os("PI_CONFIG_DIR").unwrap_or_else(|| ".omp".into());
+    let root = home().join(config);
+    if let Some(profile) = omp_profile() {
+        return root.join("profiles").join(profile).join("agent");
+    }
+    std::env::var_os("PI_CODING_AGENT_DIR")
+        .map_or_else(|| root.join("agent"), PathBuf::from)
+}
+
+fn omp_profile() -> Option<String> {
+    std::env::var("OMP_PROFILE")
+        .ok()
+        .or_else(|| std::env::var("PI_PROFILE").ok())
+        .map(|p| p.trim().to_owned())
+        .filter(|p| !p.is_empty() && p != "default")
+}
+
+fn omp_sessions_dir() -> PathBuf {
+    let profile = omp_profile();
+    if profile.is_none() {
+        if let Some(dir) = std::env::var_os("PI_CODING_AGENT_DIR") {
+            return PathBuf::from(dir).join("sessions");
+        }
+    }
+    if let Some(xdg) = std::env::var_os("XDG_DATA_HOME") {
+        let mut root = PathBuf::from(xdg).join("omp");
+        if let Some(profile) = profile {
+            root = root.join("profiles").join(profile);
+        }
+        if root.is_dir() {
+            return root.join("sessions");
+        }
+    }
+    omp_agent_dir().join("sessions")
 }
 
 fn home() -> PathBuf {
@@ -290,6 +348,17 @@ pub fn claude_project_dirs() -> Vec<PathBuf> {
 pub fn codex_session_files() -> Vec<PathBuf> {
     let mut out = Vec::new();
     let sessions = codex_home().join("sessions");
+    if sessions.exists() {
+        walk_jsonl(&sessions, &mut out);
+    }
+    out
+}
+
+/// Every `*.jsonl` under Oh My Pi's agent session directory (recursively).
+#[must_use]
+pub fn omp_session_files() -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let sessions = omp_sessions_dir();
     if sessions.exists() {
         walk_jsonl(&sessions, &mut out);
     }
@@ -609,6 +678,136 @@ fn parse_codex_file(path: &Path) -> ParsedFile {
     ParsedFile { cwd, chunks }
 }
 
+// -------- Oh My Pi parsing (per-turn) --------
+
+fn parse_omp_file(path: &Path) -> ParsedFile {
+    let Ok(f) = fs::File::open(path) else {
+        return ParsedFile::default();
+    };
+    let reader = BufReader::new(f);
+    let mut session_id: Option<String> = None;
+    let mut cwd: Option<String> = None;
+    let mut entry_turn: HashMap<String, usize> = HashMap::new();
+    let mut turns: Vec<(String, String, String)> = Vec::new(); // (turn_id, user, assistant)
+
+    for line in reader.lines() {
+        let Ok(line) = line else { continue };
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Ok(rec) = serde_json::from_str::<Value>(trimmed) else {
+            continue;
+        };
+        let kind = rec.get("type").and_then(|v| v.as_str());
+        if kind == Some("session") {
+            if let Some(id) = rec.get("id").and_then(|v| v.as_str()) {
+                session_id = Some(id.to_owned());
+            }
+            if let Some(value) = rec.get("cwd").and_then(|v| v.as_str()) {
+                if !value.is_empty() {
+                    cwd = Some(value.to_owned());
+                }
+            }
+            continue;
+        }
+
+        let entry_id = rec.get("id").and_then(|v| v.as_str());
+        let parent_turn = rec
+            .get("parentId")
+            .and_then(|v| v.as_str())
+            .and_then(|id| entry_turn.get(id).copied());
+        if kind != Some("message") {
+            if let (Some(id), Some(turn)) = (entry_id, parent_turn) {
+                entry_turn.insert(id.to_owned(), turn);
+            }
+            continue;
+        }
+
+        let msg = rec.get("message").unwrap_or(&rec);
+        match msg.get("role").and_then(|v| v.as_str()) {
+            Some("user") => {
+                let text = omp_message_text(msg);
+                if text.is_empty() {
+                    continue;
+                }
+                let Some(id) = entry_id else { continue };
+                let turn = turns.len();
+                turns.push((id.to_owned(), text, String::new()));
+                entry_turn.insert(id.to_owned(), turn);
+            }
+            Some("assistant") => {
+                let Some(turn) = parent_turn else { continue };
+                let text = omp_message_text(msg);
+                if !text.is_empty() {
+                    let assistant = &mut turns[turn].2;
+                    if !assistant.is_empty() {
+                        assistant.push('\n');
+                    }
+                    assistant.push_str(&text);
+                }
+                if let Some(id) = entry_id {
+                    entry_turn.insert(id.to_owned(), turn);
+                }
+            }
+            _ => {
+                if let (Some(id), Some(turn)) = (entry_id, parent_turn) {
+                    entry_turn.insert(id.to_owned(), turn);
+                }
+            }
+        }
+    }
+
+    let Some(session_id) = session_id else {
+        return ParsedFile {
+            cwd,
+            chunks: Vec::new(),
+        };
+    };
+    let path_str = path.to_string_lossy();
+    let chunks = turns
+        .into_iter()
+        .filter(|(_, _, assistant)| !assistant.is_empty())
+        .enumerate()
+        .map(|(i, (turn_id, user, assistant))| {
+            build_chunk(
+                &session_id,
+                &turn_id,
+                &path_str,
+                &user,
+                &assistant,
+                i as i64,
+            )
+        })
+        .collect();
+    ParsedFile { cwd, chunks }
+}
+
+fn omp_message_text(msg: &Value) -> String {
+    if let Some(text) = msg.get("content").and_then(|v| v.as_str()) {
+        return text.to_owned();
+    }
+    let Some(blocks) = msg.get("content").and_then(|v| v.as_array()) else {
+        return String::new();
+    };
+    let mut parts = Vec::new();
+    for block in blocks {
+        match block.get("type").and_then(|v| v.as_str()) {
+            Some("text") => {
+                if let Some(text) = block.get("text").and_then(|v| v.as_str()) {
+                    parts.push(text.to_owned());
+                }
+            }
+            Some("toolCall") => {
+                let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("?");
+                parts.push(format!("[tool_use: {name}]"));
+            }
+            _ => {}
+        }
+    }
+    parts.join("\n")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -692,6 +891,34 @@ mod tests {
         assert_eq!(parsed.cwd.as_deref(), Some("/repo"));
         assert_eq!(parsed.chunks.len(), 1);
         assert!(parsed.chunks[0].content.contains("turn:t1"));
+        fs::remove_file(&p).ok();
+    }
+
+    #[test]
+    fn parse_omp_emits_tree_aware_pairs_with_cwd() {
+        let p = write_jsonl(
+            "omp",
+            &[
+                r#"{"type":"title","title":"ignored preamble"}"#,
+                r#"{"type":"session","version":3,"id":"sess-o","cwd":"/repo"}"#,
+                r#"{"type":"model_change","id":"m1","parentId":null,"model":"openai/gpt"}"#,
+                r#"{"type":"message","id":"u1","parentId":"m1","message":{"role":"user","content":[{"type":"text","text":"first"}]}}"#,
+                r#"{"type":"message","id":"a1","parentId":"u1","message":{"role":"assistant","content":[{"type":"thinking","thinking":"hidden"},{"type":"toolCall","name":"read"}]}}"#,
+                r#"{"type":"message","id":"r1","parentId":"a1","message":{"role":"toolResult","content":[{"type":"text","text":"tool output"}]}}"#,
+                r#"{"type":"message","id":"a2","parentId":"r1","message":{"role":"assistant","content":[{"type":"text","text":"done"}]}}"#,
+                r#"{"type":"message","id":"u2","parentId":"a2","message":{"role":"user","content":[{"type":"text","text":"second"}]}}"#,
+                r#"{"type":"message","id":"a3","parentId":"u2","message":{"role":"assistant","content":[{"type":"text","text":"second answer"}]}}"#,
+                r#"{"type":"message","id":"u3","parentId":"a2","message":{"role":"user","content":[{"type":"text","text":"alternate"}]}}"#,
+                r#"{"type":"message","id":"a4","parentId":"u3","message":{"role":"assistant","content":[{"type":"text","text":"alternate answer"}]}}"#,
+            ],
+        );
+        let parsed = parse_omp_file(&p);
+        assert_eq!(parsed.cwd.as_deref(), Some("/repo"));
+        assert_eq!(parsed.chunks.len(), 3);
+        assert!(parsed.chunks[0].content.contains("turn:u1"));
+        assert!(parsed.chunks[0].content.contains("[tool_use: read]\ndone"));
+        assert!(parsed.chunks[1].content.contains("second answer"));
+        assert!(parsed.chunks[2].content.contains("alternate answer"));
         fs::remove_file(&p).ok();
     }
 }

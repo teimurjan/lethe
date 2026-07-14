@@ -48,6 +48,8 @@ for hit in store.retrieve("which db for OLAP?", 5)? {
 - `MemoryDb` — DuckDB schema with `entries`, `entry_embeddings`,
   `cluster_suppression`, `cluster_centroids`, `stats`
 - `union_store::UnionStore` — read-only cross-project retrieval
+- `transcript_index` — incremental Claude Code, Codex, and Oh My Pi history
+  discovery
 
 Embeddings live as DuckDB BLOBs; the in-memory `FlatIp` is rebuilt from
 those on every `open()` (~100 ms on 200k entries).

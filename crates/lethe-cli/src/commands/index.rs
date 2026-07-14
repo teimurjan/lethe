@@ -1,7 +1,7 @@
 //! `lethe index` — index this project's agent transcripts into the store.
 //!
-//! Full scan: reparses every changed transcript (Claude Code + Codex) and
-//! add-only-syncs its turns. Idempotent — unchanged transcripts are
+//! Full scan: reparses every changed transcript (Claude Code, Codex, and Oh
+//! My Pi) and add-only-syncs its turns. Idempotent — unchanged transcripts are
 //! skipped via the manifest. Also registers the project so
 //! `lethe search --all` / recall-global can find its global index.
 //!
