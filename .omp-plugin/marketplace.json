@@ -6,13 +6,13 @@
   },
   "metadata": {
     "description": "Self-improving memory for Oh My Pi — transcript indexing, hybrid retrieval, and RIF",
-    "version": "0.17.0"
+    "version": "0.18.0"
   },
   "plugins": [
     {
       "name": "lethe",
       "description": "Persistent memory across Oh My Pi sessions — hybrid BM25+dense retrieval and clustered retrieval-induced forgetting.",
-      "version": "0.17.0",
+      "version": "0.18.0",
       "source": "./plugins/omp",
       "author": {
         "name": "Teimur Gasanov"

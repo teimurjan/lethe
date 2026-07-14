@@ -1,6 +1,6 @@
 {
   "name": "lethe",
-  "version": "0.17.0",
+  "version": "0.18.0",
   "description": "Persistent memory across Codex CLI sessions. Indexes your transcripts directly, hybrid BM25 + dense retrieval, clustered retrieval-induced forgetting.",
   "author": {
     "name": "Teimur Gasanov"
