@@ -196,7 +196,7 @@ fn draw_body(frame: &mut Frame<'_>, area: Rect, app: &mut App) {
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Min(5),
-            Constraint::Length(4),
+            Constraint::Length(5),
             Constraint::Length(8),
         ])
         .split(chunks[0]);
@@ -351,6 +351,7 @@ fn draw_sources(frame: &mut Frame<'_>, area: Rect, app: &App) {
         Some(s) => vec![
             source_line("Claude Code", s.claude),
             source_line("Codex", s.codex),
+            source_line("Oh My Pi", s.oh_my_pi),
         ],
     };
     let para = Paragraph::new(lines).block(block);

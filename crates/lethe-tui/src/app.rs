@@ -29,6 +29,8 @@ pub struct Stats {
     pub claude: usize,
     /// Memories whose source transcript is a Codex rollout.
     pub codex: usize,
+    /// Memories whose source transcript is an Oh My Pi session.
+    pub oh_my_pi: usize,
     /// `(display_name, count)` sorted descending by count.
     pub by_project: Vec<(String, usize)>,
 }
@@ -42,16 +44,31 @@ pub fn project_name(root: &Path) -> String {
     )
 }
 
-/// Classify a memory by its anchor's transcript path. Codex rollouts are
-/// named `rollout-*.jsonl` and live under `sessions/`; everything else is
-/// Claude Code. `None` when the content carries no anchor.
-fn source_is_codex(content: &str) -> Option<bool> {
-    let a = parse_anchor(content)?;
-    let base = Path::new(&a.transcript)
+/// Agent that produced an indexed transcript.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TranscriptSource {
+    ClaudeCode,
+    Codex,
+    OhMyPi,
+}
+
+/// Classify a memory by its anchor's transcript path. Codex rollouts have a
+/// stable `rollout-` filename prefix; other transcripts under `sessions/`
+/// belong to Oh My Pi. `None` means the content carries no anchor.
+fn transcript_source(content: &str) -> Option<TranscriptSource> {
+    let anchor = parse_anchor(content)?;
+    let base = Path::new(&anchor.transcript)
         .file_name()
-        .and_then(|s| s.to_str())
+        .and_then(|name| name.to_str())
         .unwrap_or("");
-    Some(base.starts_with("rollout-") || a.transcript.contains("/sessions/"))
+    if base.starts_with("rollout-") {
+        Some(TranscriptSource::Codex)
+    } else if anchor.transcript.contains("/sessions/") || anchor.transcript.contains("\\sessions\\")
+    {
+        Some(TranscriptSource::OhMyPi)
+    } else {
+        Some(TranscriptSource::ClaudeCode)
+    }
 }
 
 fn index_db_path(slug: &str) -> PathBuf {
@@ -698,8 +715,8 @@ impl App {
     }
 }
 
-/// Compute per-project memory counts + per-source (Claude Code vs Codex)
-/// totals off-thread. Opens each project's DuckDB file directly (no
+/// Compute per-project memory counts + per-source totals off-thread. Opens
+/// each project's DuckDB file directly (no
 /// embeddings, no encoders) so first paint is fast even with many
 /// registered projects.
 fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
@@ -709,6 +726,7 @@ fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
         let mut total = 0usize;
         let mut claude = 0usize;
         let mut codex = 0usize;
+        let mut oh_my_pi = 0usize;
         for p in projects {
             let db_path = index_db_path(&p.slug);
             if !db_path.exists() {
@@ -721,9 +739,10 @@ fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
                 continue;
             };
             for row in &rows {
-                match source_is_codex(&row.content) {
-                    Some(true) => codex += 1,
-                    Some(false) => claude += 1,
+                match transcript_source(&row.content) {
+                    Some(TranscriptSource::ClaudeCode) => claude += 1,
+                    Some(TranscriptSource::Codex) => codex += 1,
+                    Some(TranscriptSource::OhMyPi) => oh_my_pi += 1,
                     None => {}
                 }
             }
@@ -735,6 +754,7 @@ fn spawn_stats(projects: Vec<ProjectEntry>) -> mpsc::Receiver<Stats> {
             total,
             claude,
             codex,
+            oh_my_pi,
             by_project,
         });
     });
@@ -750,20 +770,26 @@ mod tests {
     }
 
     #[test]
-    fn classifies_codex_vs_claude() {
+    fn classifies_transcript_sources() {
         assert_eq!(
-            source_is_codex(&anchored(
+            transcript_source(&anchored(
                 "/Users/x/.codex/sessions/2026/07/rollout-2026-abc.jsonl"
             )),
-            Some(true)
+            Some(TranscriptSource::Codex)
         );
         assert_eq!(
-            source_is_codex(&anchored(
+            transcript_source(&anchored(
+                "/Users/x/.omp/agent/sessions/-Users-x-repo/2026-07-14_session.jsonl"
+            )),
+            Some(TranscriptSource::OhMyPi)
+        );
+        assert_eq!(
+            transcript_source(&anchored(
                 "/Users/x/.claude/projects/-Users-x-repo/6f0e.jsonl"
             )),
-            Some(false)
+            Some(TranscriptSource::ClaudeCode)
         );
-        assert_eq!(source_is_codex("no anchor here"), None);
+        assert_eq!(transcript_source("no anchor here"), None);
     }
 
     #[test]
