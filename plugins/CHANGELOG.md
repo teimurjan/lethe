@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.19.0](https://github.com/teimurjan/lethe/compare/lethe-plugins-v0.18.0...lethe-plugins-v0.19.0) (2026-07-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove transcript adapter binaries ([#54](https://github.com/teimurjan/lethe/issues/54))
+
+### Features
+
+* Remove transcript adapter binaries ([#54](https://github.com/teimurjan/lethe/issues/54)) ([0f41895](https://github.com/teimurjan/lethe/commit/0f418953bc5ec271c6abc75024fda6b082cc5ca2))
+
 ## [0.18.0](https://github.com/teimurjan/lethe/compare/lethe-plugins-v0.17.0...lethe-plugins-v0.18.0) (2026-07-14)
 
 

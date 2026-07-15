@@ -6,7 +6,7 @@
   "plugins": [
     {
       "name": "lethe",
-      "version": "0.18.0",
+      "version": "0.19.0",
       "description": "Persistent memory across Codex CLI sessions — hybrid BM25+dense retrieval, clustered retrieval-induced forgetting.",
       "source": {
         "source": "local",
