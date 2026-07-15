@@ -125,6 +125,9 @@ pub struct EntryRow {
     pub retrieval_count: i64,
     pub last_retrieved_step: i64,
     pub suppression: f32,
+    /// Unix seconds the row was first indexed (`created_at`). `0` when the
+    /// column is null (pre-timestamp rows).
+    pub created_at_epoch: i64,
 }
 
 /// One row from a "top-active" RIF read — entries whose current
@@ -238,6 +241,39 @@ impl MemoryDb {
         Ok(())
     }
 
+    /// Delete every entry first indexed before `cutoff_epoch` (unix
+    /// seconds), along with its embedding and any cluster-suppression rows
+    /// that would be left orphaned. Returns the number of entries removed.
+    /// Used by the TUI's "delete state records… older than N days" flow.
+    pub fn delete_entries_older_than(&self, cutoff_epoch: i64) -> Result<usize, crate::Error> {
+        let removed: i64 = {
+            let mut stmt = self
+                .conn
+                .prepare("SELECT COUNT(*) FROM entries WHERE epoch(created_at) < ?")?;
+            let mut rows = stmt.query(params![cutoff_epoch])?;
+            rows.next()?.map_or(0, |r| r.get::<_, i64>(0).unwrap_or(0))
+        };
+        if removed == 0 {
+            return Ok(0);
+        }
+        self.conn.execute(
+            "DELETE FROM entry_embeddings WHERE entry_id IN \
+                (SELECT id FROM entries WHERE epoch(created_at) < ?)",
+            params![cutoff_epoch],
+        )?;
+        self.conn.execute(
+            "DELETE FROM entries WHERE epoch(created_at) < ?",
+            params![cutoff_epoch],
+        )?;
+        // Drop suppression rows that no longer point at a live entry so a
+        // later RIF rebuild doesn't compete over ghosts.
+        self.conn.execute(
+            "DELETE FROM cluster_suppression WHERE entry_id NOT IN (SELECT id FROM entries)",
+            [],
+        )?;
+        Ok(removed as usize)
+    }
+
     pub fn count(&self) -> Result<i64, crate::Error> {
         let mut stmt = self
             .conn
@@ -259,7 +295,8 @@ impl MemoryDb {
     pub fn load_all_entries(&self) -> Result<Vec<EntryRow>, crate::Error> {
         let mut stmt = self.conn.prepare(
             "SELECT id, content, session_id, turn_idx, tier, affinity,
-                    retrieval_count, last_retrieved_step, suppression
+                    retrieval_count, last_retrieved_step, suppression,
+                    CAST(epoch(created_at) AS BIGINT)
              FROM entries WHERE tier != 'apoptotic'",
         )?;
         let rows = stmt.query_map([], |row| {
@@ -273,6 +310,7 @@ impl MemoryDb {
                 retrieval_count: row.get::<_, Option<i64>>(6)?.unwrap_or(0),
                 last_retrieved_step: row.get::<_, Option<i64>>(7)?.unwrap_or(0),
                 suppression: row.get::<_, Option<f64>>(8)?.unwrap_or(0.0) as f32,
+                created_at_epoch: row.get::<_, Option<i64>>(9)?.unwrap_or(0),
             })
         })?;
         let mut out = Vec::new();
@@ -356,9 +394,7 @@ impl MemoryDb {
     /// Full `absorbed_id -> canonical_id` map. Used by tooling that must
     /// redirect references to merged-away entries (e.g. remapping
     /// benchmark qrels after a compaction pass).
-    pub fn alias_map(
-        &self,
-    ) -> Result<std::collections::HashMap<String, String>, crate::Error> {
+    pub fn alias_map(&self) -> Result<std::collections::HashMap<String, String>, crate::Error> {
         let mut stmt = self
             .conn
             .prepare("SELECT absorbed_id, canonical_id FROM entry_alias")?;

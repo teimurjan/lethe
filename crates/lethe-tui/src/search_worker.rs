@@ -37,9 +37,20 @@ pub enum WorkerRequest {
     Scan,
     /// Delete the given stale transcripts from disk.
     DeleteStale(Vec<StaleTranscript>),
-    /// Drop cached read handles so a writer (in-process or out) can open
-    /// the DuckDB. Sent before main-thread project deletion.
-    ReleaseCaches,
+    /// Delete stored memory records (age-based) from the given projects.
+    DeleteRecords {
+        entries: Vec<ProjectEntry>,
+        days: u32,
+    },
+    /// Remove whole projects (index + registry, optionally transcripts).
+    DeleteProjects {
+        entries: Vec<ProjectEntry>,
+        with_transcripts: bool,
+    },
+    /// Wipe each project's index dir, then re-parse every transcript from
+    /// scratch. Unlike [`Index`] (incremental), this picks up parser/format
+    /// fixes on transcripts whose mtime/size never changed.
+    Rebuild(Vec<ProjectEntry>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -166,7 +177,38 @@ impl WorkerState {
                     &items,
                 )));
             }
-            WorkerRequest::ReleaseCaches => self.release_caches(),
+            WorkerRequest::DeleteRecords { entries, days } => {
+                self.release_caches();
+                let _ = tx.send(WorkerOutput::Deleted(maintenance::delete_records(
+                    &entries, days,
+                )));
+            }
+            WorkerRequest::DeleteProjects {
+                entries,
+                with_transcripts,
+            } => {
+                self.release_caches();
+                let mut total = Reclaimed::default();
+                for e in &entries {
+                    total =
+                        add_reclaimed(total, maintenance::delete_project_data(e, with_transcripts));
+                }
+                let _ = tx.send(WorkerOutput::Deleted(total));
+            }
+            WorkerRequest::Rebuild(projects) => {
+                self.release_caches();
+                // Drop each index dir so `ensure_fresh` has no manifest to
+                // trust and re-parses every transcript from scratch.
+                for e in &projects {
+                    let dir = registry::registry_dir().join("index").join(&e.slug);
+                    let _ = std::fs::remove_dir_all(&dir);
+                }
+                let out = match self.index(&projects, tx) {
+                    Ok((added, n)) => WorkerOutput::Indexed { added, projects: n },
+                    Err(e) => WorkerOutput::Error(e),
+                };
+                let _ = tx.send(out);
+            }
         }
     }
 
@@ -234,10 +276,12 @@ impl WorkerState {
                 Ok(hits
                     .into_iter()
                     .map(|h| ResultRow {
+                        project_name: crate::app::project_name(&h.project_root),
                         project_root: Some(h.project_root),
                         id: h.id,
                         content: h.content,
                         score: h.score,
+                        date_epoch: 0,
                     })
                     .collect())
             }
@@ -265,12 +309,24 @@ impl WorkerState {
                     .into_iter()
                     .map(|h| ResultRow {
                         project_root: None,
+                        project_name: String::new(),
                         id: h.id,
                         content: h.content,
                         score: h.score,
+                        date_epoch: 0,
                     })
                     .collect())
             }
         }
+    }
+}
+
+/// Field-wise sum of two [`Reclaimed`] totals (its own `add` is private).
+fn add_reclaimed(a: Reclaimed, b: Reclaimed) -> Reclaimed {
+    Reclaimed {
+        projects: a.projects + b.projects,
+        transcripts: a.transcripts + b.transcripts,
+        records: a.records + b.records,
+        bytes: a.bytes + b.bytes,
     }
 }

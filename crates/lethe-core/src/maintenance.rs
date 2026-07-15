@@ -71,6 +71,8 @@ pub fn empty_projects() -> Vec<ProjectEntry> {
 pub struct Reclaimed {
     pub projects: usize,
     pub transcripts: usize,
+    /// Individual memory rows deleted (age-based "delete state records").
+    pub records: usize,
     pub bytes: u64,
 }
 
@@ -78,8 +80,45 @@ impl Reclaimed {
     fn add(&mut self, other: Reclaimed) {
         self.projects += other.projects;
         self.transcripts += other.transcripts;
+        self.records += other.records;
         self.bytes += other.bytes;
     }
+}
+
+/// Delete stored memory records from the given projects. `older_than_days
+/// == 0` wipes each project's whole index (via [`delete_project_data`],
+/// keeping transcripts on disk); a positive value deletes only rows first
+/// indexed before the cutoff. Callers must confirm — this is irreversible.
+#[must_use]
+pub fn delete_records(entries: &[ProjectEntry], older_than_days: u32) -> Reclaimed {
+    let mut r = Reclaimed::default();
+    if older_than_days == 0 {
+        for e in entries {
+            r.add(delete_project_data(e, false));
+        }
+        return r;
+    }
+    let cutoff = now_epoch().saturating_sub(i64::from(older_than_days) * 86_400);
+    for e in entries {
+        let db_path = index_dir(&e.slug).join("lethe.duckdb");
+        if !db_path.exists() {
+            continue;
+        }
+        if let Ok(db) = MemoryDb::open_with_mode(&db_path, false) {
+            if let Ok(n) = db.delete_entries_older_than(cutoff) {
+                r.records += n;
+            }
+        }
+    }
+    r
+}
+
+/// Current unix time in whole seconds.
+fn now_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 /// Remove lethe's data for a project (unregister + drop its index dir).

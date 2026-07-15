@@ -1,32 +1,28 @@
-//! `lethe-tui` — ratatui counterpart to `research_playground/lethe_reference/lethe/tui.py`.
+//! `lethe-tui` — palette-first memory browser.
 //!
-//! Library entry point: callers invoke [`run`] which owns the full
-//! terminal lifecycle (`enable_raw_mode`, `EnterAlternateScreen`,
-//! event loop, cleanup). The CLI's no-arg path and explicit `tui`
-//! subcommand both call into this function.
+//! Library entry point: callers invoke [`run`] which owns the full terminal
+//! lifecycle (`enable_raw_mode`, `EnterAlternateScreen`, event loop,
+//! cleanup). The CLI's no-arg path and explicit `tui` subcommand both call
+//! into this function.
 //!
-//! Layout:
-//!   ┌── lethe ─── › <scope> ─────────────────────────────┐
-//!   │ Projects (N)        │ all projects ▸ █             │
-//!   │ > project-a         ├─────────────────────────────┤
-//!   │   project-b         │ Results ↑/↓ to browse       │
-//!   │ ...                 │ ...                         │
-//!   ├─────────────────────┴─────────────────────────────┤
-//!   │ Detail (Esc to close)                              │
-//!   ├────────────────────────────────────────────────────┤
-//!   │ ↑/↓ nav · ⏎ search/open · esc back · ^q quit       │
-//!   └────────────────────────────────────────────────────┘
+//! Layout (home):
+//!   ◆ lethe v0.16.0                     3 projects · 128 memories
+//!   ┌ Search ─────────────────────────────────────────────────┐
+//!   │ ❯ auth tok█   12 matches · all projects                  │
+//!   └──────────────────────────────────────────────────────────┘
+//!   ┌ Results ─────────────────────────────────────────────────┐
+//!   │ ▸ fix auth token refresh          · acme-api · Jul 14     │
+//!   │   rotate auth tokens in CI        · infra-tools · Jul 09  │
+//!   └──────────────────────────────────────────────────────────┘
+//!   ↑↓ move · ↵ open · Tab scope · F2 settings · ^c copy · F10 quit
 //!
-//! Behaviors mirrored from the Textual TUI:
-//!   - Live-expand on result-list highlight (no Enter needed). Empty
-//!     results don't blink the detail pane.
-//!   - First result auto-highlighted after search; arrow keys browse.
-//!   - Type-anywhere refocuses the search input.
+//! Enter opens a full-screen reader; F2 opens a settings modal.
 
 #![allow(clippy::print_stdout)]
 
 mod app;
 mod search_worker;
+mod theme;
 mod ui;
 
 use anyhow::Result;
@@ -43,10 +39,10 @@ use ratatui::Terminal;
 use std::io;
 use std::time::Duration;
 
-use crate::app::App;
+use crate::app::{App, Mode};
 
-/// Run the TUI to completion. Owns the terminal lifecycle so callers
-/// only need to handle the returned `Result`.
+/// Run the TUI to completion. Owns the terminal lifecycle so callers only
+/// need to handle the returned `Result`.
 pub fn run() -> Result<()> {
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -78,73 +74,69 @@ fn run_event_loop<B: ratatui::backend::Backend>(
             app.needs_redraw = false;
         }
         terminal.draw(|f| ui::draw(f, app))?;
-        // Poll-based event loop so background search results can land.
         if event::poll(tick_rate)? {
-            match event::read()? {
-                Event::Key(k) if k.kind == KeyEventKind::Press => {
-                    if handle_key(app, k) {
-                        return Ok(());
-                    }
+            if let Event::Key(k) = event::read()? {
+                if k.kind == KeyEventKind::Press && handle_key(app, k) {
+                    return Ok(());
                 }
-                _ => {}
             }
         }
+        app.poll_mem();
         app.poll_search_results();
-        app.poll_stats();
+        app.poll_search_due();
         app.poll_toast();
     }
 }
 
 /// Returns `true` when the app wants to exit.
-///
-/// Typing always edits the search box; Tab / Shift+Tab cycle the project
-/// sidebar (loading that project's memories); ↑/↓ move within the memory
-/// list; Esc goes back; Ctrl+C copies the highlighted memory; Ctrl+D
-/// deletes the highlighted project; Ctrl+A opens the actions menu; Ctrl+Q
-/// quits.
 fn handle_key(app: &mut App, key: KeyEvent) -> bool {
-    // Quit works from anywhere, including modal overlays.
-    if let (KeyCode::Char('q'), KeyModifiers::CONTROL) = (key.code, key.modifiers) {
+    // Global quit from anywhere.
+    if matches!(
+        (key.code, key.modifiers),
+        (KeyCode::Char('q'), KeyModifiers::CONTROL) | (KeyCode::F(10), _)
+    ) {
         return true;
     }
-    // While an overlay (actions menu / confirm / busy) is open it captures
-    // every other key, leaving the base view's bindings untouched.
+
+    // Overlays capture every other key while open.
     if app.overlay.is_some() {
-        app.overlay_key(key.code);
-        return false;
+        return app.overlay_key(key);
     }
 
-    match (key.code, key.modifiers) {
-        // Open the actions menu.
-        (KeyCode::Char('a'), KeyModifiers::CONTROL) => app.open_actions(),
-
-        // Copy the highlighted memory.
-        (KeyCode::Char('c'), KeyModifiers::CONTROL) => app.copy_selected_to_clipboard(),
-
-        // Delete the highlighted project (press twice).
-        (KeyCode::Char('d'), KeyModifiers::CONTROL) => app.request_or_confirm_delete(),
-
-        (KeyCode::Enter, _) => app.on_enter(),
-        (KeyCode::Esc, _) => app.escape(),
-
-        // Tab / Shift+Tab cycle projects; arrows move within memories.
-        (KeyCode::Tab, _) => app.cycle_project(1),
-        (KeyCode::BackTab, _) => app.cycle_project(-1),
-        (KeyCode::Up, _) => app.arrow(-1),
-        (KeyCode::Down, _) => app.arrow(1),
-
-        (KeyCode::Backspace, _) => {
-            app.pending_delete = None;
-            app.search_input.pop();
-        }
-        // Typing always goes to the search box. CONTROL/ALT combos are
-        // terminal shortcuts (handled above or ignored), not text.
-        (KeyCode::Char(c), m) if (m - KeyModifiers::SHIFT).is_empty() => {
-            app.pending_delete = None;
-            app.search_input.push(c);
-        }
-
-        _ => {}
+    match app.mode {
+        Mode::Reader => handle_reader_key(app, key),
+        Mode::Home => handle_home_key(app, key),
     }
     false
+}
+
+fn handle_home_key(app: &mut App, key: KeyEvent) {
+    match (key.code, key.modifiers) {
+        (KeyCode::F(2), _) => app.open_settings(),
+        (KeyCode::Char('c'), KeyModifiers::CONTROL) => app.copy_selected_to_clipboard(),
+        (KeyCode::Enter, _) => app.open_reader(),
+        (KeyCode::Esc, _) => app.clear_query(),
+        (KeyCode::Tab, _) => app.cycle_scope(1),
+        (KeyCode::BackTab, _) => app.cycle_scope(-1),
+        (KeyCode::Up, _) => app.arrow(-1),
+        (KeyCode::Down, _) => app.arrow(1),
+        (KeyCode::Backspace, _) => app.backspace(),
+        // Typing goes to the search box; CONTROL/ALT combos are shortcuts.
+        (KeyCode::Char(c), m) if (m - KeyModifiers::SHIFT).is_empty() => app.push_char(c),
+        _ => {}
+    }
+}
+
+fn handle_reader_key(app: &mut App, key: KeyEvent) {
+    match key.code {
+        KeyCode::Esc => app.close_reader(),
+        KeyCode::Up => app.reader_scroll(-1),
+        KeyCode::Down => app.reader_scroll(1),
+        KeyCode::PageUp => app.reader_scroll(-10),
+        KeyCode::PageDown => app.reader_scroll(10),
+        KeyCode::Left => app.reader_page(-1),
+        KeyCode::Right => app.reader_page(1),
+        KeyCode::Char('c') => app.copy_selected_to_clipboard(),
+        _ => {}
+    }
 }
