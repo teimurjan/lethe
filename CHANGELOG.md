@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.17.0](https://github.com/teimurjan/lethe/compare/lethe-v0.16.0...lethe-v0.17.0) (2026-07-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove transcript adapter binaries ([#54](https://github.com/teimurjan/lethe/issues/54))
+
+### Features
+
+* Remove transcript adapter binaries ([#54](https://github.com/teimurjan/lethe/issues/54)) ([0f41895](https://github.com/teimurjan/lethe/commit/0f418953bc5ec271c6abc75024fda6b082cc5ca2))
+* **tui:** Palette-first redesign + rebuild flows ([#58](https://github.com/teimurjan/lethe/issues/58)) ([1e0fdd6](https://github.com/teimurjan/lethe/commit/1e0fdd6403b3a10dd9acaa2312e7520b6c5131c9))
+
+
+### Bug Fixes
+
+* **tui:** Show Oh My Pi source ([#57](https://github.com/teimurjan/lethe/issues/57)) ([9285503](https://github.com/teimurjan/lethe/commit/9285503adf07636901040cc8a05089d0be784b44))
+
 ## [0.16.0](https://github.com/teimurjan/lethe/compare/lethe-v0.15.0...lethe-v0.16.0) (2026-07-14)
 
 
